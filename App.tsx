@@ -29,7 +29,9 @@ import {
   Filter,
   Monitor,
   MoreHorizontal,
-  Briefcase
+  Briefcase,
+  ArrowLeft,
+  MinusCircle
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -68,6 +70,14 @@ interface TransferState {
   fromGroupId: string;
   toGroupId: string;
   quantity: number;
+}
+
+interface UsageState {
+  materialId: string;
+  name: string;
+  currentQty: number;
+  useQty: number;
+  unit: string;
 }
 
 // New Interfaces for Hierarchy Modals
@@ -112,6 +122,12 @@ function App() {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferData, setTransferData] = useState<TransferState>({
     materialName: '', fromGroupId: '', toGroupId: '', quantity: 1
+  });
+
+  // Usage/Consumption Modal
+  const [showUsageModal, setShowUsageModal] = useState(false);
+  const [usageData, setUsageData] = useState<UsageState>({
+    materialId: '', name: '', currentQty: 0, useQty: 0, unit: ''
   });
 
   // --- New Modal States ---
@@ -311,6 +327,51 @@ function App() {
     setNewMaterial({ name: '', spec: '', quantity: 1, unit: '個', projectId: '', siteId: '', groupId: '' });
   };
 
+  // --- CONSUMPTION: Usage Logic ---
+  const openUsageModal = (item: Material) => {
+    setUsageData({
+      materialId: item.id,
+      name: item.name,
+      currentQty: item.quantity,
+      useQty: 1,
+      unit: item.unit
+    });
+    setShowUsageModal(true);
+  };
+
+  const handleUsage = () => {
+    const { materialId, useQty } = usageData;
+    if (useQty <= 0) return;
+    
+    // Find item
+    const targetItem = inventory.find(i => i.id === materialId);
+    if (!targetItem) return;
+
+    if (useQty > targetItem.quantity) {
+      alert(`錯誤：消耗數量 (${useQty}) 超過當前庫存 (${targetItem.quantity})`);
+      return;
+    }
+
+    // Update Inventory: Reduce quantity in place
+    // If quantity becomes 0, we can either remove it or keep it as 0. Let's keep it as 0 for now or filter out later.
+    // User requested "modify quantity in original group", so simple subtraction.
+    
+    const updatedInventory = inventory.map(item => {
+      if (item.id === materialId) {
+        return {
+          ...item,
+          quantity: item.quantity - useQty,
+          lastUpdated: new Date().toISOString()
+        };
+      }
+      return item;
+    });
+
+    setInventory(updatedInventory);
+    setShowUsageModal(false);
+  };
+
+
   // --- COORDINATION: Transfer Logic ---
   const openTransferModal = (materialName: string, fromGroupId?: string) => {
     setTransferData({
@@ -441,15 +502,15 @@ function App() {
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">帳號</label>
-              <input type="text" value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} className="w-full px-4 py-2 border rounded-lg text-gray-900 bg-white" placeholder="admin" />
+              <label className="block text-base font-medium text-gray-700 mb-1">帳號</label>
+              <input type="text" value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} className="w-full px-4 py-3 border rounded-lg text-lg text-gray-900 bg-white" placeholder="admin" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">密碼</label>
-              <input type="password" value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} className="w-full px-4 py-2 border rounded-lg text-gray-900 bg-white" placeholder="password" />
+              <label className="block text-base font-medium text-gray-700 mb-1">密碼</label>
+              <input type="password" value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} className="w-full px-4 py-3 border rounded-lg text-lg text-gray-900 bg-white" placeholder="password" />
             </div>
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2">
-              登入 <ArrowRight className="w-4 h-4" />
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-lg flex items-center justify-center gap-2 text-lg">
+              登入 <ArrowRight className="w-5 h-5" />
             </button>
           </form>
           <div className="mt-6 text-center text-xs text-gray-400">測試帳號: admin / password</div>
@@ -468,9 +529,9 @@ function App() {
                <div className="bg-blue-600 p-2 rounded-lg text-white">
                  <Box className="w-6 h-6" />
                </div>
-               <h1 className="text-xl md:text-2xl font-bold text-gray-800">SmartBuild 專案選擇</h1>
+               <h1 className="text-xl md:text-3xl font-bold text-gray-800">SmartBuild 專案選擇</h1>
              </div>
-             <button onClick={handleLogout} className="text-gray-500 hover:text-gray-700 flex items-center gap-2 text-sm md:text-base">
+             <button onClick={handleLogout} className="text-gray-500 hover:text-gray-700 flex items-center gap-2 text-base md:text-lg">
                <LogOut className="w-5 h-5" /> 登出
              </button>
           </div>
@@ -486,11 +547,11 @@ function App() {
                   <div className="bg-blue-50 p-3 rounded-lg group-hover:bg-blue-600 transition-colors">
                     <Briefcase className="w-6 h-6 text-blue-600 group-hover:text-white" />
                   </div>
-                  <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-blue-500" />
+                  <ChevronRight className="w-6 h-6 text-gray-300 group-hover:text-blue-500" />
                 </div>
-                <h2 className="text-xl font-bold text-gray-800 mb-2">{proj.name}</h2>
-                <div className="text-sm text-gray-500 mb-4">專案編號: {proj.id}</div>
-                <div className="border-t pt-4 flex gap-4 text-sm text-gray-500">
+                <h2 className="text-2xl font-bold text-gray-800 mb-2">{proj.name}</h2>
+                <div className="text-base text-gray-500 mb-4">專案編號: {proj.id}</div>
+                <div className="border-t pt-4 flex gap-4 text-base text-gray-500">
                   <div className="flex items-center gap-1">
                     <MapPin className="w-4 h-4" /> {proj.sites.length} 個工區
                   </div>
@@ -504,10 +565,10 @@ function App() {
             {/* Add Project Card */}
             <div 
               onClick={openAddProjectModal}
-              className="border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center justify-center text-gray-400 hover:text-blue-600 hover:border-blue-400 hover:bg-blue-50 transition-all cursor-pointer min-h-[200px]"
+              className="border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center justify-center text-gray-400 hover:text-blue-600 hover:border-blue-400 hover:bg-blue-50 transition-all cursor-pointer min-h-[240px]"
             >
-              <Plus className="w-12 h-12 mb-2" />
-              <span className="font-bold">建立新專案</span>
+              <Plus className="w-16 h-16 mb-4" />
+              <span className="font-bold text-xl">建立新專案</span>
             </div>
           </div>
         </div>
@@ -540,7 +601,7 @@ function App() {
 
   // 3. Project Dashboard Layout
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row h-screen overflow-hidden">
+    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row h-screen overflow-hidden text-base">
       {/* Sidebar Desktop */}
       <div className="hidden md:flex flex-col w-72 bg-slate-900 text-slate-300 h-full border-r border-slate-800">
         <div className="p-6 flex items-center gap-3 text-white font-bold text-xl shrink-0">
@@ -578,14 +639,21 @@ function App() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-full overflow-hidden relative">
-        <div className="md:hidden bg-white shadow-sm p-4 flex justify-between items-center shrink-0">
-          <span className="font-bold text-lg text-gray-800 flex items-center gap-2 truncate max-w-[70%]">
-            <Box className="w-6 h-6 text-blue-600 shrink-0" /> <span className="truncate">{currentProject?.name}</span>
-          </span>
-          <button onClick={() => setShowScanner(true)}><ScanLine className="w-6 h-6 text-gray-600" /></button>
+        <div className="md:hidden bg-white shadow-sm p-4 flex justify-between items-center shrink-0 border-b">
+          <div className="flex items-center gap-3 overflow-hidden">
+             {/* Mobile Back Button */}
+             <button onClick={exitProject} className="text-gray-500 hover:text-blue-600 p-1">
+               <ArrowLeft className="w-6 h-6" />
+             </button>
+             <span className="font-bold text-lg text-gray-800 flex items-center gap-2 truncate">
+               <Box className="w-6 h-6 text-blue-600 shrink-0" /> 
+               <span className="truncate">{currentProject?.name}</span>
+             </span>
+          </div>
+          <button onClick={() => setShowScanner(true)}><ScanLine className="w-7 h-7 text-gray-600" /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-20 md:pb-8 bg-gray-50">
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8 bg-gray-50">
           {view === 'DASHBOARD' && (
             <div className="space-y-6">
                <div className="flex justify-between items-end">
@@ -604,7 +672,7 @@ function App() {
                       <button
                         key={mat}
                         onClick={() => toggleMonitorFilter(mat)}
-                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
+                        className={`px-4 py-2 rounded-full text-sm font-bold transition-all border ${
                           monitorFilters.includes(mat)
                             ? 'bg-slate-800 text-white border-slate-800 shadow-md'
                             : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
@@ -620,7 +688,7 @@ function App() {
                {monitorGroups.length === 0 ? (
                  <div className="flex flex-col items-center justify-center h-64 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
                     <Monitor className="w-12 h-12 text-slate-300 mb-2" />
-                    <p className="text-slate-400">此專案尚未建立工區或小組</p>
+                    <p className="text-slate-400 text-lg">此專案尚未建立工區或小組</p>
                     <button onClick={() => setView('SETTINGS')} className="mt-2 text-blue-600 hover:underline">前往設定新增</button>
                  </div>
                ) : (
@@ -629,7 +697,7 @@ function App() {
                       {/* Site Header */}
                       <div className="flex items-center gap-2 px-1">
                          <MapPin className="w-5 h-5 text-blue-600" />
-                         <h3 className="text-lg font-bold text-slate-800">{siteGroup.siteName}</h3>
+                         <h3 className="text-xl font-bold text-slate-800">{siteGroup.siteName}</h3>
                          <div className="h-px bg-slate-200 flex-1 ml-2"></div>
                       </div>
 
@@ -637,54 +705,49 @@ function App() {
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                         {siteGroup.groups.map(group => {
                           const groupMaterials = inventory.filter(i => i.groupId === group.id);
-                          
-                          // Correct Filtering: Intersection of user-selected filters AND available materials in this project
-                          // This ensures we don't show materials from other projects if they remain in monitorFilters state
                           const activeFilters = monitorFilters.filter(f => availableMaterials.includes(f));
 
                           return (
                             <div key={group.id} className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden h-full">
                                {/* Group Title Bar */}
-                               <div className="bg-slate-50 border-b border-slate-100 p-3 flex justify-between items-center">
+                               <div className="bg-slate-50 border-b border-slate-100 p-4 flex justify-between items-center">
                                   <div className="flex items-center gap-2">
                                      <div className="bg-white p-1 rounded border shadow-sm">
-                                       <Users className="w-4 h-4 text-purple-600" />
+                                       <Users className="w-5 h-5 text-purple-600" />
                                      </div>
-                                     <span className="font-bold text-slate-700">{group.name}</span>
+                                     <span className="font-bold text-slate-800 text-lg">{group.name}</span>
                                   </div>
                                </div>
 
                                {/* Material Stats Body */}
-                               <div className="p-4 space-y-3 flex-1">
+                               <div className="p-5 space-y-4 flex-1">
                                   {activeFilters.length === 0 ? (
-                                    <p className="text-xs text-gray-400 text-center py-4">請選取上方材料以開始監控</p>
+                                    <p className="text-sm text-gray-400 text-center py-4">請選取上方材料以開始監控</p>
                                   ) : (
                                     activeFilters.map(filterName => {
                                       const items = groupMaterials.filter(i => i.name === filterName);
                                       const totalQty = items.reduce((a,c) => a + c.quantity, 0);
                                       const unit = items[0]?.unit || '-';
-                                      
-                                      // Scale: Assumes 200 is "full" for demo visualization
                                       const percent = Math.min((totalQty / 200) * 100, 100);
 
                                       return (
                                         <div key={filterName} className="group/item">
                                            <div className="flex justify-between items-end mb-1">
-                                              <span className="text-xs font-medium text-slate-600">{filterName}</span>
+                                              <span className="text-sm font-medium text-slate-600">{filterName}</span>
                                               <div className="flex items-center gap-2">
-                                                 <span className={`text-sm font-mono font-bold ${totalQty === 0 ? 'text-gray-300' : 'text-slate-800'}`}>
-                                                   {totalQty} <span className="text-[10px] text-gray-400 font-sans">{unit}</span>
+                                                 <span className={`text-base font-mono font-bold ${totalQty === 0 ? 'text-gray-300' : 'text-slate-800'}`}>
+                                                   {totalQty} <span className="text-xs text-gray-400 font-sans">{unit}</span>
                                                  </span>
                                                  <button 
                                                    onClick={() => openTransferModal(filterName, group.id)}
-                                                   className="opacity-0 group-hover/item:opacity-100 transition-opacity p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"
+                                                   className="opacity-0 group-hover/item:opacity-100 transition-opacity p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"
                                                    title={`從 ${group.name} 調出 ${filterName}`}
                                                  >
-                                                   <ArrowLeftRight className="w-3 h-3" />
+                                                   <ArrowLeftRight className="w-4 h-4" />
                                                  </button>
                                               </div>
                                            </div>
-                                           <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                                           <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden">
                                               <div 
                                                 className={`h-full rounded-full transition-all duration-500 ${
                                                    totalQty === 0 ? 'bg-transparent' : 
@@ -700,7 +763,7 @@ function App() {
                                   
                                   {activeFilters.length > 0 && activeFilters.every(f => !groupMaterials.some(i => i.name === f)) && (
                                      <div className="text-center py-4">
-                                        <span className="text-xs text-gray-300 italic">無相關庫存</span>
+                                        <span className="text-sm text-gray-300 italic">無相關庫存</span>
                                      </div>
                                   )}
                                </div>
@@ -720,10 +783,10 @@ function App() {
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                    <Settings className="w-6 h-6 text-gray-600" /> 
+                    <Settings className="w-7 h-7 text-gray-600" /> 
                     結構設定: {currentProject?.name}
                   </h3>
-                  <p className="text-gray-500 mt-1">管理本專案下的工區與小組</p>
+                  <p className="text-gray-500 mt-1 text-base">管理本專案下的工區與小組</p>
                 </div>
               </div>
 
@@ -731,49 +794,49 @@ function App() {
               {currentProject && (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
                   {/* Sites List */}
-                  <div className="p-5 space-y-4 flex-1">
+                  <div className="p-6 space-y-6 flex-1">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">轄下工區 (Sites)</span>
+                      <span className="text-sm font-bold text-slate-400 uppercase tracking-wider">轄下工區 (Sites)</span>
                       <button 
                         onClick={() => openAddSiteModal(currentProject.id)}
-                        className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1 hover:bg-emerald-50 px-2 py-1 rounded"
+                        className="text-emerald-600 hover:text-emerald-700 text-sm font-bold flex items-center gap-1 hover:bg-emerald-50 px-3 py-1.5 rounded"
                       >
-                        <Plus className="w-3 h-3" /> 新增工區
+                        <Plus className="w-4 h-4" /> 新增工區
                       </button>
                     </div>
 
                     {currentProject.sites.length === 0 ? (
-                      <div className="text-center py-8 border-2 border-dashed border-slate-100 rounded-lg text-slate-400 text-sm">
+                      <div className="text-center py-12 border-2 border-dashed border-slate-100 rounded-lg text-slate-400 text-lg">
                         尚未建立工區
                       </div>
                     ) : (
-                      <div className="space-y-4">
+                      <div className="space-y-6">
                         {currentProject.sites.map(site => (
-                          <div key={site.id} className="relative pl-4 border-l-2 border-emerald-500/30 group">
+                          <div key={site.id} className="relative pl-6 border-l-4 border-emerald-500/30 group">
                             <div className="flex justify-between items-start">
                               <div>
-                                <div className="flex items-center gap-2">
-                                  <h5 className="font-bold text-slate-700">{site.name}</h5>
+                                <div className="flex items-center gap-2 mb-2">
+                                  <h5 className="font-bold text-xl text-slate-700">{site.name}</h5>
                                   <button 
                                     onClick={() => openDeleteModal('SITE', site.id, site.name, currentProject.id)}
-                                    className="opacity-0 group-hover:opacity-100 text-red-300 hover:text-red-500 transition-opacity"
+                                    className="opacity-0 group-hover:opacity-100 text-red-300 hover:text-red-500 transition-opacity p-1"
                                   >
-                                    <Trash2 className="w-3 h-3" />
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
                                 
                                 {/* Groups Container */}
-                                <div className="mt-2 flex flex-wrap gap-2">
+                                <div className="mt-3 flex flex-wrap gap-3">
                                   {site.groups.map(group => (
                                     <div 
                                       key={group.id} 
-                                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100 group/chip"
+                                      className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-purple-50 text-purple-700 border border-purple-100 group/chip"
                                     >
-                                      <Users className="w-3 h-3" />
+                                      <Users className="w-4 h-4" />
                                       {group.name}
                                       <button 
                                         onClick={() => openDeleteModal('GROUP', group.id, group.name, currentProject.id, site.id)}
-                                        className="ml-1 text-purple-300 hover:text-red-500 hover:bg-red-50 rounded-full w-4 h-4 flex items-center justify-center transition-colors"
+                                        className="ml-2 text-purple-300 hover:text-red-500 hover:bg-red-50 rounded-full w-5 h-5 flex items-center justify-center transition-colors"
                                       >
                                         &times;
                                       </button>
@@ -781,9 +844,9 @@ function App() {
                                   ))}
                                   <button 
                                     onClick={() => openAddGroupModal(currentProject.id, site.id)}
-                                    className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-slate-50 text-slate-500 border border-slate-200 border-dashed hover:border-slate-400 hover:text-slate-700 transition-colors"
+                                    className="inline-flex items-center gap-1 px-4 py-2 rounded-full text-sm font-medium bg-slate-50 text-slate-500 border border-slate-200 border-dashed hover:border-slate-400 hover:text-slate-700 transition-colors"
                                   >
-                                    <Plus className="w-3 h-3" /> 小組
+                                    <Plus className="w-4 h-4" /> 小組
                                   </button>
                                 </div>
                               </div>
@@ -802,28 +865,28 @@ function App() {
              <div className="space-y-6">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                    <div>
-                      <h2 className="text-xl font-bold text-gray-800">庫存清單與註冊</h2>
-                      <p className="text-sm text-gray-500">{currentProject?.name} 全域庫存</p>
+                      <h2 className="text-2xl font-bold text-gray-800">庫存清單與註冊</h2>
+                      <p className="text-base text-gray-500">{currentProject?.name} 全域庫存</p>
                    </div>
                    <div className="flex gap-2">
                      <button 
                        onClick={() => setShowMaterialModal(true)}
-                       className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 shadow"
+                       className="flex items-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-lg hover:bg-blue-700 shadow font-bold"
                      >
-                       <Plus className="w-4 h-4" /> 註冊新材料
+                       <Plus className="w-5 h-5" /> 註冊新材料
                      </button>
                    </div>
                 </div>
 
                 {/* Local Inventory Filters */}
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap gap-4 items-center">
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-wrap gap-4 items-center">
                   <div className="flex items-center gap-2">
-                    <Filter className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm font-bold text-gray-600">篩選範圍:</span>
+                    <Filter className="w-5 h-5 text-gray-400" />
+                    <span className="text-base font-bold text-gray-600">篩選範圍:</span>
                   </div>
                   
                   <select 
-                    className="border rounded px-3 py-1.5 text-sm bg-gray-50 text-gray-900"
+                    className="border rounded px-3 py-2 text-base bg-gray-50 text-gray-900 min-w-[120px]"
                     value={scope.siteId || ''}
                     onChange={e => setScope(prev => ({ ...prev, siteId: e.target.value || null, groupId: null }))}
                   >
@@ -832,7 +895,7 @@ function App() {
                   </select>
 
                   <select 
-                    className="border rounded px-3 py-1.5 text-sm bg-gray-50 disabled:opacity-50 text-gray-900"
+                    className="border rounded px-3 py-2 text-base bg-gray-50 disabled:opacity-50 text-gray-900 min-w-[120px]"
                     value={scope.groupId || ''}
                     disabled={!scope.siteId}
                     onChange={e => setScope(prev => ({ ...prev, groupId: e.target.value || null }))}
@@ -846,60 +909,71 @@ function App() {
                   {(scope.siteId || scope.groupId) && (
                     <button 
                       onClick={() => setScope(prev => ({ ...prev, siteId: null, groupId: null }))}
-                      className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+                      className="text-sm text-red-500 hover:text-red-700 flex items-center gap-1 ml-auto"
                     >
-                      <X className="w-3 h-3" /> 清除篩選
+                      <X className="w-4 h-4" /> 清除篩選
                     </button>
                   )}
                 </div>
                 
-                <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                {/* Desktop View: Table */}
+                <div className="hidden md:block bg-white rounded-xl shadow-sm border overflow-hidden">
                    <div className="overflow-x-auto">
-                     <table className="w-full text-left text-sm">
-                       <thead className="bg-gray-50 text-gray-700 font-semibold uppercase tracking-wider">
+                     <table className="w-full text-left text-base">
+                       <thead className="bg-gray-50 text-gray-700 font-bold uppercase tracking-wider border-b">
                          <tr>
-                           <th className="p-4">材料資訊</th>
-                           <th className="p-4">歸屬位置</th>
-                           <th className="p-4">狀態</th>
-                           <th className="p-4 text-right">數量</th>
-                           <th className="p-4 text-center">操作</th>
+                           <th className="p-5">材料資訊</th>
+                           <th className="p-5">歸屬位置 (工區/小組)</th>
+                           <th className="p-5">狀態</th>
+                           <th className="p-5 text-right">數量</th>
+                           <th className="p-5 text-center">操作</th>
                          </tr>
                        </thead>
                        <tbody className="divide-y divide-gray-100">
                          {filteredInventory.map(item => {
-                           const pName = projects.find(p=>p.id===item.projectId)?.name || item.projectId;
                            const p = projects.find(proj => proj.id === item.projectId);
                            const sName = p?.sites.find(s=>s.id===item.siteId)?.name || item.siteId;
-                           const s = p?.sites.find(site => site.id === item.siteId);
-                           const gName = s?.groups.find(g=>g.id===item.groupId)?.name || item.groupId;
+                           const gName = p?.sites.find(s=>s.id===item.siteId)?.groups.find(g=>g.id===item.groupId)?.name || item.groupId;
 
                            return (
                              <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                               <td className="p-4">
-                                 <div className="font-medium text-gray-900">{item.name}</div>
-                                 <div className="text-xs text-gray-500">{item.spec}</div>
-                                 <div className="text-[10px] text-gray-400 font-mono mt-0.5">{item.qrCode}</div>
+                               <td className="p-5">
+                                 <div className="font-bold text-lg text-gray-900">{item.name}</div>
+                                 <div className="text-sm text-gray-500">{item.spec}</div>
+                                 <div className="text-xs text-gray-400 font-mono mt-1">{item.qrCode}</div>
                                </td>
-                               <td className="p-4 text-xs text-gray-600">
-                                 <div className="flex flex-col gap-0.5">
-                                   <span className="font-semibold text-blue-800">{pName}</span>
-                                   <span className="pl-2 border-l-2 border-gray-200">{sName}</span>
-                                   <span className="pl-2 border-l-2 border-gray-200">{gName}</span>
+                               <td className="p-5">
+                                 <div className="flex flex-col items-start gap-2">
+                                   <span className="inline-block px-2 py-1 bg-emerald-100 text-emerald-800 text-sm font-bold rounded">
+                                     <MapPin className="w-3 h-3 inline mr-1" /> {sName}
+                                   </span>
+                                   <span className="inline-block px-2 py-1 bg-purple-100 text-purple-800 text-sm font-bold rounded">
+                                     <Users className="w-3 h-3 inline mr-1" /> {gName}
+                                   </span>
                                  </div>
                                </td>
-                               <td className="p-4">
-                                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${
-                                    item.status === 'NEW' ? 'bg-blue-100 text-blue-700' : 
-                                    item.status === 'USED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                               <td className="p-5">
+                                  <span className={`px-3 py-1 rounded-full text-sm font-bold border ${
+                                    item.status === 'NEW' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
+                                    item.status === 'USED' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'
                                   }`}>
                                     {item.status}
                                   </span>
                                </td>
-                               <td className="p-4 text-right font-mono font-bold text-gray-800">{item.quantity} <span className="text-xs font-normal text-gray-400">{item.unit}</span></td>
-                               <td className="p-4 text-center">
-                                 <button onClick={() => openDeleteModal('MATERIAL', item.id, item.name)} className="text-gray-400 hover:text-red-600">
-                                   <Trash2 className="w-4 h-4" />
-                                 </button>
+                               <td className="p-5 text-right font-mono font-bold text-xl text-gray-800">{item.quantity} <span className="text-sm font-normal text-gray-400">{item.unit}</span></td>
+                               <td className="p-5">
+                                 <div className="flex justify-center items-center gap-3">
+                                   <button 
+                                     onClick={() => openUsageModal(item)}
+                                     className="flex items-center gap-1 bg-orange-100 text-orange-700 px-3 py-1.5 rounded hover:bg-orange-200 text-sm font-bold"
+                                     title="消耗/使用"
+                                   >
+                                     <MinusCircle className="w-4 h-4" /> 領用
+                                   </button>
+                                   <button onClick={() => openDeleteModal('MATERIAL', item.id, item.name)} className="text-gray-400 hover:text-red-600 p-2">
+                                     <Trash2 className="w-5 h-5" />
+                                   </button>
+                                 </div>
                                </td>
                              </tr>
                            );
@@ -911,6 +985,67 @@ function App() {
                      </table>
                    </div>
                 </div>
+
+                {/* Mobile View: Cards */}
+                <div className="md:hidden space-y-4">
+                  {filteredInventory.map(item => {
+                      const p = projects.find(proj => proj.id === item.projectId);
+                      const sName = p?.sites.find(s=>s.id===item.siteId)?.name || item.siteId;
+                      const gName = p?.sites.find(s=>s.id===item.siteId)?.groups.find(g=>g.id===item.groupId)?.name || item.groupId;
+
+                      return (
+                        <div key={item.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+                          <div className="flex justify-between items-start mb-3">
+                             <div>
+                               <h3 className="text-xl font-bold text-gray-900">{item.name}</h3>
+                               <p className="text-sm text-gray-500 mt-1">{item.spec}</p>
+                             </div>
+                             <span className={`px-2 py-1 rounded text-xs font-bold ${
+                               item.status === 'NEW' ? 'bg-blue-100 text-blue-700' : 
+                               item.status === 'USED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                             }`}>
+                               {item.status}
+                             </span>
+                          </div>
+                          
+                          <div className="flex flex-wrap gap-2 mb-4">
+                             <span className="inline-flex items-center px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded">
+                               <MapPin className="w-3 h-3 mr-1" /> {sName}
+                             </span>
+                             <span className="inline-flex items-center px-2 py-1 bg-purple-100 text-purple-800 text-xs font-bold rounded">
+                               <Users className="w-3 h-3 mr-1" /> {gName}
+                             </span>
+                          </div>
+
+                          <div className="flex justify-between items-center pt-3 border-t border-gray-100">
+                             <div className="font-mono text-2xl font-bold text-gray-800">
+                               {item.quantity} <span className="text-sm font-sans text-gray-400 font-normal">{item.unit}</span>
+                             </div>
+                             <div className="flex gap-2">
+                               <button 
+                                 onClick={() => openUsageModal(item)}
+                                 className="flex items-center gap-1 bg-orange-100 text-orange-700 px-4 py-2 rounded-lg hover:bg-orange-200 text-sm font-bold"
+                               >
+                                 <MinusCircle className="w-4 h-4" /> 領用
+                               </button>
+                               <button 
+                                 onClick={() => openDeleteModal('MATERIAL', item.id, item.name)} 
+                                 className="p-2 text-gray-400 hover:text-red-500 bg-gray-50 rounded-lg"
+                               >
+                                 <Trash2 className="w-5 h-5" />
+                               </button>
+                             </div>
+                          </div>
+                        </div>
+                      );
+                  })}
+                  {filteredInventory.length === 0 && (
+                     <div className="text-center py-12 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">
+                       無庫存資料
+                     </div>
+                  )}
+                </div>
+
              </div>
           )}
         </div>
@@ -977,6 +1112,47 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* 0.6 Usage (Consumption) Modal */}
+      {showUsageModal && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 animate-in zoom-in duration-200 border-t-4 border-orange-500">
+             <div className="flex items-center gap-2 mb-4">
+                <MinusCircle className="w-6 h-6 text-orange-500" />
+                <h3 className="text-xl font-bold text-gray-800">材料領用/消耗</h3>
+             </div>
+             
+             <div className="bg-orange-50 p-3 rounded mb-4">
+               <p className="text-sm text-orange-800 font-bold">{usageData.name}</p>
+               <p className="text-xs text-orange-600">當前庫存: {usageData.currentQty} {usageData.unit}</p>
+             </div>
+
+             <div className="mb-6">
+                <label className="block text-sm font-bold text-gray-600 mb-2">領用數量</label>
+                <div className="flex items-center gap-2">
+                   <input 
+                    type="number" 
+                    autoFocus
+                    min={1}
+                    max={usageData.currentQty}
+                    className="w-full border-2 border-orange-200 rounded-lg p-3 text-2xl font-mono text-center text-gray-900 focus:border-orange-500 outline-none" 
+                    value={usageData.useQty}
+                    onChange={e => setUsageData({...usageData, useQty: parseInt(e.target.value) || 0})}
+                  />
+                  <span className="text-gray-500 font-bold">{usageData.unit}</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-2 text-center">操作後庫存將變更為: {usageData.currentQty - usageData.useQty}</p>
+             </div>
+
+             <div className="flex justify-end gap-3">
+                <button onClick={() => setShowUsageModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-bold">取消</button>
+                <button onClick={handleUsage} className="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-bold">
+                  確認領用
+                </button>
+             </div>
+          </div>
+        </div>
+      )}
       
       {/* 1. Material Registration Modal */}
       {showMaterialModal && (
@@ -984,27 +1160,27 @@ function App() {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 animate-in zoom-in duration-200">
              <div className="flex justify-between items-center mb-6 border-b pb-4">
                <h3 className="text-xl font-bold text-gray-800">註冊新材料</h3>
-               <button onClick={() => setShowMaterialModal(false)}><X className="w-5 h-5 text-gray-500" /></button>
+               <button onClick={() => setShowMaterialModal(false)}><X className="w-6 h-6 text-gray-500" /></button>
              </div>
              <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                    <div>
-                     <label className="block text-sm font-medium text-gray-700 mb-1">材料名稱</label>
-                     <input type="text" className="w-full border rounded p-2 text-gray-900 bg-white" value={newMaterial.name} onChange={e => setNewMaterial({...newMaterial, name: e.target.value})} placeholder="例如: 鋼管" />
+                     <label className="block text-sm font-bold text-gray-700 mb-1">材料名稱</label>
+                     <input type="text" className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.name} onChange={e => setNewMaterial({...newMaterial, name: e.target.value})} placeholder="例如: 鋼管" />
                    </div>
                    <div>
-                     <label className="block text-sm font-medium text-gray-700 mb-1">規格</label>
-                     <input type="text" className="w-full border rounded p-2 text-gray-900 bg-white" value={newMaterial.spec} onChange={e => setNewMaterial({...newMaterial, spec: e.target.value})} placeholder="例如: 50mm x 3m" />
+                     <label className="block text-sm font-bold text-gray-700 mb-1">規格</label>
+                     <input type="text" className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.spec} onChange={e => setNewMaterial({...newMaterial, spec: e.target.value})} placeholder="例如: 50mm x 3m" />
                    </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                    <div>
-                     <label className="block text-sm font-medium text-gray-700 mb-1">數量</label>
-                     <input type="number" className="w-full border rounded p-2 text-gray-900 bg-white" value={newMaterial.quantity} onChange={e => setNewMaterial({...newMaterial, quantity: parseInt(e.target.value) || 0})} />
+                     <label className="block text-sm font-bold text-gray-700 mb-1">數量</label>
+                     <input type="number" className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.quantity} onChange={e => setNewMaterial({...newMaterial, quantity: parseInt(e.target.value) || 0})} />
                    </div>
                    <div>
-                     <label className="block text-sm font-medium text-gray-700 mb-1">單位</label>
-                     <input type="text" className="w-full border rounded p-2 text-gray-900 bg-white" value={newMaterial.unit} onChange={e => setNewMaterial({...newMaterial, unit: e.target.value})} />
+                     <label className="block text-sm font-bold text-gray-700 mb-1">單位</label>
+                     <input type="text" className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.unit} onChange={e => setNewMaterial({...newMaterial, unit: e.target.value})} />
                    </div>
                 </div>
                 
@@ -1015,20 +1191,20 @@ function App() {
                       專案: {currentProject?.name}
                    </div>
                    
-                   <select className="w-full border rounded p-2 text-gray-900 bg-white" value={newMaterial.siteId} onChange={e => setNewMaterial({...newMaterial, projectId: currentProject?.id || '', siteId: e.target.value, groupId: ''})}>
+                   <select className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.siteId} onChange={e => setNewMaterial({...newMaterial, projectId: currentProject?.id || '', siteId: e.target.value, groupId: ''})}>
                       <option value="">選擇工區</option>
                       {currentProject?.sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                    </select>
-                   <select className="w-full border rounded p-2 text-gray-900 bg-white" value={newMaterial.groupId} onChange={e => setNewMaterial({...newMaterial, groupId: e.target.value})} disabled={!newMaterial.siteId}>
+                   <select className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.groupId} onChange={e => setNewMaterial({...newMaterial, groupId: e.target.value})} disabled={!newMaterial.siteId}>
                       <option value="">選擇小組</option>
                       {currentProject?.sites.find(s=>s.id===newMaterial.siteId)?.groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                    </select>
                 </div>
 
                 <div className="pt-4 flex justify-end gap-3">
-                   <button onClick={() => setShowMaterialModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">取消</button>
+                   <button onClick={() => setShowMaterialModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded font-bold">取消</button>
                    <button onClick={handleAddMaterial} className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold flex items-center gap-2">
-                     <Save className="w-4 h-4" /> 儲存
+                     <Save className="w-5 h-5" /> 儲存
                    </button>
                 </div>
              </div>
@@ -1052,7 +1228,7 @@ function App() {
                 <div>
                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">來源小組 (調出)</label>
                    <select 
-                     className="w-full border rounded p-2 bg-gray-50 text-gray-900"
+                     className="w-full border rounded p-3 bg-gray-50 text-gray-900"
                      value={transferData.fromGroupId}
                      onChange={e => setTransferData({...transferData, fromGroupId: e.target.value})}
                    >
@@ -1070,7 +1246,7 @@ function App() {
                 <div>
                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">目的小組 (調入)</label>
                    <select 
-                     className="w-full border rounded p-2 bg-white text-gray-900"
+                     className="w-full border rounded p-3 bg-white text-gray-900"
                      value={transferData.toGroupId}
                      onChange={e => setTransferData({...transferData, toGroupId: e.target.value})}
                    >
@@ -1085,7 +1261,7 @@ function App() {
                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">調撥數量</label>
                    <input 
                      type="number" 
-                     className="w-full border rounded p-2 font-mono text-lg text-gray-900 bg-white" 
+                     className="w-full border rounded p-3 font-mono text-xl text-gray-900 bg-white" 
                      value={transferData.quantity}
                      min={1}
                      onChange={e => setTransferData({...transferData, quantity: parseInt(e.target.value) || 0})}
@@ -1093,7 +1269,7 @@ function App() {
                 </div>
 
                 <div className="flex justify-end gap-3 mt-6">
-                   <button onClick={() => setShowTransferModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">取消</button>
+                   <button onClick={() => setShowTransferModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded font-bold">取消</button>
                    <button onClick={handleTransfer} className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">
                      確認調撥
                    </button>
@@ -1139,19 +1315,19 @@ function App() {
 const NavButton = ({ icon, label, active, onClick }: any) => (
   <button
     onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-2 mx-1 rounded-lg transition-all text-sm font-medium ${
+    className={`w-full flex items-center gap-3 px-4 py-3 mx-1 rounded-lg transition-all text-base font-medium ${
       active ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
     }`}
   >
-    {React.cloneElement(icon, { size: 18 })}
+    {React.cloneElement(icon, { size: 20 })}
     <span>{label}</span>
   </button>
 );
 
 const MobileNavIcon = ({ icon, label, active, onClick }: any) => (
   <button onClick={onClick} className={`flex flex-col items-center gap-1 ${active ? 'text-blue-600' : 'text-gray-400'}`}>
-    {React.cloneElement(icon, { size: 20 })}
-    <span className="text-[10px] font-medium">{label}</span>
+    {React.cloneElement(icon, { size: 24 })}
+    <span className="text-xs font-bold">{label}</span>
   </button>
 );
 
