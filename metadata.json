@@ -1,0 +1,7 @@
+{
+  "name": "SmartBuild 建材管理系統",
+  "description": "智慧建材管理系統，提供 AI 調配建議與 QR Code 掃描功能。",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
