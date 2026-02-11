@@ -120,15 +120,6 @@ function App() {
   
   const [deleteModal, setDeleteModal] = useState<DeleteModalState>({ type: null, id: '', name: '' });
 
-  // --- Initial Effects ---
-  // When inventory loads, set all materials as active filters by default (or just top 5)
-  useEffect(() => {
-    if (inventory.length > 0 && monitorFilters.length === 0) {
-      const allNames = Array.from(new Set(inventory.map(i => i.name)));
-      setMonitorFilters(allNames);
-    }
-  }, [inventory]);
-
   // --- Helpers ---
   const currentProject = useMemo(() => {
     return projects.find(p => p.id === scope.projectId);
@@ -142,6 +133,16 @@ function App() {
       return true;
     });
   }, [inventory, scope]);
+
+  // Get all unique materials available in the current filtered scope
+  const availableMaterials = useMemo(() => {
+    return Array.from(new Set(filteredInventory.map(i => i.name))).sort();
+  }, [filteredInventory]);
+
+  // Update filters when available materials change (e.g. switching projects)
+  useEffect(() => {
+    setMonitorFilters(availableMaterials);
+  }, [availableMaterials.join(',')]);
 
   const currentScopeName = useMemo(() => {
     if (scope.groupId) {
@@ -384,13 +385,6 @@ function App() {
     alert(`成功調撥 ${quantity} ${materialName} 到目的小組`);
   };
 
-
-  // --- VISUALIZATION: Monitor Data Preparation ---
-  // Get all unique materials available in the current scope
-  const availableMaterials = useMemo(() => {
-    return Array.from(new Set(filteredInventory.map(i => i.name)));
-  }, [filteredInventory]);
-
   // Toggle monitor filter
   const toggleMonitorFilter = (name: string) => {
     if (monitorFilters.includes(name)) {
@@ -448,11 +442,11 @@ function App() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">帳號</label>
-              <input type="text" value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} className="w-full px-4 py-2 border rounded-lg" placeholder="admin" />
+              <input type="text" value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} className="w-full px-4 py-2 border rounded-lg text-gray-900 bg-white" placeholder="admin" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">密碼</label>
-              <input type="password" value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} className="w-full px-4 py-2 border rounded-lg" placeholder="password" />
+              <input type="password" value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} className="w-full px-4 py-2 border rounded-lg text-gray-900 bg-white" placeholder="password" />
             </div>
             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2">
               登入 <ArrowRight className="w-4 h-4" />
@@ -467,16 +461,16 @@ function App() {
   // 2. Project Selection View
   if (view === 'PROJECT_SELECT') {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center p-8">
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4 md:p-8">
         <div className="w-full max-w-5xl">
           <div className="flex justify-between items-center mb-12">
              <div className="flex items-center gap-3">
                <div className="bg-blue-600 p-2 rounded-lg text-white">
                  <Box className="w-6 h-6" />
                </div>
-               <h1 className="text-2xl font-bold text-gray-800">SmartBuild 專案選擇</h1>
+               <h1 className="text-xl md:text-2xl font-bold text-gray-800">SmartBuild 專案選擇</h1>
              </div>
-             <button onClick={handleLogout} className="text-gray-500 hover:text-gray-700 flex items-center gap-2">
+             <button onClick={handleLogout} className="text-gray-500 hover:text-gray-700 flex items-center gap-2 text-sm md:text-base">
                <LogOut className="w-5 h-5" /> 登出
              </button>
           </div>
@@ -526,7 +520,7 @@ function App() {
               <input 
                 type="text" 
                 autoFocus
-                className="w-full border rounded p-2 mb-4" 
+                className="w-full border rounded p-2 mb-4 text-gray-900 bg-white" 
                 placeholder="專案名稱..." 
                 value={newItemName}
                 onChange={e => setNewItemName(e.target.value)}
@@ -585,8 +579,8 @@ function App() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-full overflow-hidden relative">
         <div className="md:hidden bg-white shadow-sm p-4 flex justify-between items-center shrink-0">
-          <span className="font-bold text-lg text-gray-800 flex items-center gap-2">
-            <Box className="w-6 h-6 text-blue-600" /> {currentProject?.name}
+          <span className="font-bold text-lg text-gray-800 flex items-center gap-2 truncate max-w-[70%]">
+            <Box className="w-6 h-6 text-blue-600 shrink-0" /> <span className="truncate">{currentProject?.name}</span>
           </span>
           <button onClick={() => setShowScanner(true)}><ScanLine className="w-6 h-6 text-gray-600" /></button>
         </div>
@@ -643,6 +637,11 @@ function App() {
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                         {siteGroup.groups.map(group => {
                           const groupMaterials = inventory.filter(i => i.groupId === group.id);
+                          
+                          // Correct Filtering: Intersection of user-selected filters AND available materials in this project
+                          // This ensures we don't show materials from other projects if they remain in monitorFilters state
+                          const activeFilters = monitorFilters.filter(f => availableMaterials.includes(f));
+
                           return (
                             <div key={group.id} className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden h-full">
                                {/* Group Title Bar */}
@@ -657,14 +656,16 @@ function App() {
 
                                {/* Material Stats Body */}
                                <div className="p-4 space-y-3 flex-1">
-                                  {monitorFilters.length === 0 ? (
+                                  {activeFilters.length === 0 ? (
                                     <p className="text-xs text-gray-400 text-center py-4">請選取上方材料以開始監控</p>
                                   ) : (
-                                    monitorFilters.map(filterName => {
+                                    activeFilters.map(filterName => {
                                       const items = groupMaterials.filter(i => i.name === filterName);
                                       const totalQty = items.reduce((a,c) => a + c.quantity, 0);
                                       const unit = items[0]?.unit || '-';
-                                      const percent = Math.min((totalQty / 200) * 100, 100); 
+                                      
+                                      // Scale: Assumes 200 is "full" for demo visualization
+                                      const percent = Math.min((totalQty / 200) * 100, 100);
 
                                       return (
                                         <div key={filterName} className="group/item">
@@ -697,7 +698,7 @@ function App() {
                                     })
                                   )}
                                   
-                                  {monitorFilters.length > 0 && monitorFilters.every(f => !groupMaterials.some(i => i.name === f)) && (
+                                  {activeFilters.length > 0 && activeFilters.every(f => !groupMaterials.some(i => i.name === f)) && (
                                      <div className="text-center py-4">
                                         <span className="text-xs text-gray-300 italic">無相關庫存</span>
                                      </div>
@@ -822,7 +823,7 @@ function App() {
                   </div>
                   
                   <select 
-                    className="border rounded px-3 py-1.5 text-sm bg-gray-50"
+                    className="border rounded px-3 py-1.5 text-sm bg-gray-50 text-gray-900"
                     value={scope.siteId || ''}
                     onChange={e => setScope(prev => ({ ...prev, siteId: e.target.value || null, groupId: null }))}
                   >
@@ -831,7 +832,7 @@ function App() {
                   </select>
 
                   <select 
-                    className="border rounded px-3 py-1.5 text-sm bg-gray-50 disabled:opacity-50"
+                    className="border rounded px-3 py-1.5 text-sm bg-gray-50 disabled:opacity-50 text-gray-900"
                     value={scope.groupId || ''}
                     disabled={!scope.siteId}
                     onChange={e => setScope(prev => ({ ...prev, groupId: e.target.value || null }))}
@@ -916,8 +917,8 @@ function App() {
       </main>
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex justify-around p-3 pb-safe z-20 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
-        <MobileNavIcon icon={<LayoutDashboard />} label="監控" active={view === 'DASHBOARD'} onClick={() => setView('DASHBOARD')} />
-        <MobileNavIcon icon={<Box />} label="庫存" active={view === 'INVENTORY'} onClick={() => setView('INVENTORY')} />
+        <MobileNavIcon icon={<Monitor />} label="監控" active={view === 'DASHBOARD'} onClick={() => setView('DASHBOARD')} />
+        <MobileNavIcon icon={<ClipboardList />} label="庫存" active={view === 'INVENTORY'} onClick={() => setView('INVENTORY')} />
         <MobileNavIcon icon={<Settings />} label="設定" active={view === 'SETTINGS'} onClick={() => setView('SETTINGS')} />
       </div>
 
@@ -935,7 +936,7 @@ function App() {
             <input 
               type="text" 
               autoFocus
-              className="w-full border rounded p-2 mb-4" 
+              className="w-full border rounded p-2 mb-4 text-gray-900 bg-white" 
               placeholder="請輸入名稱..." 
               value={newItemName}
               onChange={e => setNewItemName(e.target.value)}
@@ -989,21 +990,21 @@ function App() {
                 <div className="grid grid-cols-2 gap-4">
                    <div>
                      <label className="block text-sm font-medium text-gray-700 mb-1">材料名稱</label>
-                     <input type="text" className="w-full border rounded p-2" value={newMaterial.name} onChange={e => setNewMaterial({...newMaterial, name: e.target.value})} placeholder="例如: 鋼管" />
+                     <input type="text" className="w-full border rounded p-2 text-gray-900 bg-white" value={newMaterial.name} onChange={e => setNewMaterial({...newMaterial, name: e.target.value})} placeholder="例如: 鋼管" />
                    </div>
                    <div>
                      <label className="block text-sm font-medium text-gray-700 mb-1">規格</label>
-                     <input type="text" className="w-full border rounded p-2" value={newMaterial.spec} onChange={e => setNewMaterial({...newMaterial, spec: e.target.value})} placeholder="例如: 50mm x 3m" />
+                     <input type="text" className="w-full border rounded p-2 text-gray-900 bg-white" value={newMaterial.spec} onChange={e => setNewMaterial({...newMaterial, spec: e.target.value})} placeholder="例如: 50mm x 3m" />
                    </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                    <div>
                      <label className="block text-sm font-medium text-gray-700 mb-1">數量</label>
-                     <input type="number" className="w-full border rounded p-2" value={newMaterial.quantity} onChange={e => setNewMaterial({...newMaterial, quantity: parseInt(e.target.value) || 0})} />
+                     <input type="number" className="w-full border rounded p-2 text-gray-900 bg-white" value={newMaterial.quantity} onChange={e => setNewMaterial({...newMaterial, quantity: parseInt(e.target.value) || 0})} />
                    </div>
                    <div>
                      <label className="block text-sm font-medium text-gray-700 mb-1">單位</label>
-                     <input type="text" className="w-full border rounded p-2" value={newMaterial.unit} onChange={e => setNewMaterial({...newMaterial, unit: e.target.value})} />
+                     <input type="text" className="w-full border rounded p-2 text-gray-900 bg-white" value={newMaterial.unit} onChange={e => setNewMaterial({...newMaterial, unit: e.target.value})} />
                    </div>
                 </div>
                 
@@ -1014,11 +1015,11 @@ function App() {
                       專案: {currentProject?.name}
                    </div>
                    
-                   <select className="w-full border rounded p-2" value={newMaterial.siteId} onChange={e => setNewMaterial({...newMaterial, projectId: currentProject?.id || '', siteId: e.target.value, groupId: ''})}>
+                   <select className="w-full border rounded p-2 text-gray-900 bg-white" value={newMaterial.siteId} onChange={e => setNewMaterial({...newMaterial, projectId: currentProject?.id || '', siteId: e.target.value, groupId: ''})}>
                       <option value="">選擇工區</option>
                       {currentProject?.sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                    </select>
-                   <select className="w-full border rounded p-2" value={newMaterial.groupId} onChange={e => setNewMaterial({...newMaterial, groupId: e.target.value})} disabled={!newMaterial.siteId}>
+                   <select className="w-full border rounded p-2 text-gray-900 bg-white" value={newMaterial.groupId} onChange={e => setNewMaterial({...newMaterial, groupId: e.target.value})} disabled={!newMaterial.siteId}>
                       <option value="">選擇小組</option>
                       {currentProject?.sites.find(s=>s.id===newMaterial.siteId)?.groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                    </select>
@@ -1051,7 +1052,7 @@ function App() {
                 <div>
                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">來源小組 (調出)</label>
                    <select 
-                     className="w-full border rounded p-2 bg-gray-50"
+                     className="w-full border rounded p-2 bg-gray-50 text-gray-900"
                      value={transferData.fromGroupId}
                      onChange={e => setTransferData({...transferData, fromGroupId: e.target.value})}
                    >
@@ -1069,7 +1070,7 @@ function App() {
                 <div>
                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">目的小組 (調入)</label>
                    <select 
-                     className="w-full border rounded p-2"
+                     className="w-full border rounded p-2 bg-white text-gray-900"
                      value={transferData.toGroupId}
                      onChange={e => setTransferData({...transferData, toGroupId: e.target.value})}
                    >
@@ -1084,7 +1085,7 @@ function App() {
                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">調撥數量</label>
                    <input 
                      type="number" 
-                     className="w-full border rounded p-2 font-mono text-lg" 
+                     className="w-full border rounded p-2 font-mono text-lg text-gray-900 bg-white" 
                      value={transferData.quantity}
                      min={1}
                      onChange={e => setTransferData({...transferData, quantity: parseInt(e.target.value) || 0})}
