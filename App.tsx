@@ -35,7 +35,9 @@ import {
   PlusCircle,
   ShoppingCart,
   Edit,
-  Pencil
+  Pencil,
+  HelpCircle,
+  MousePointerClick
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -65,13 +67,13 @@ interface MaterialFormState {
   quantity: number;
   maxQuantity: number;
   projectId: string;
-  siteId: string;
-  groupId: string;
+  siteId: string; // Can be empty string for Unassigned
+  groupId: string; // Can be empty string for Unassigned
 }
 
 interface TransferState {
   materialName: string; // Grouping by name/spec
-  fromGroupId: string;
+  fromGroupId: string; // Empty string means "Unassigned"
   toGroupId: string;
   quantity: number;
 }
@@ -101,6 +103,45 @@ interface DeleteModalState {
   siteId?: string;    // for group deletion context
 }
 
+// Helper for Progress Bar Color
+const getProgressColor = (current: number, max: number) => {
+  if (max === 0) return 'bg-gray-300';
+  const ratio = current / max;
+  
+  if (current > max) return 'bg-purple-600'; // Overflow / Anomalous
+  if (ratio >= 0.7) return 'bg-emerald-500'; // Safe (Green)
+  if (ratio >= 0.3) return 'bg-yellow-400';  // Warning (Yellow)
+  return 'bg-red-500';                       // Danger (Red)
+};
+
+const getProgressLabel = (current: number, max: number) => {
+  if (current > max) return '溢出';
+  const ratio = max > 0 ? current / max : 0;
+  if (ratio >= 0.7) return '安全';
+  if (ratio >= 0.3) return '偏低';
+  return '危險';
+};
+
+const getStatusLabel = (status: MaterialStatus) => {
+  switch (status) {
+    case MaterialStatus.NEW: return '全新 (NEW)';
+    case MaterialStatus.USED: return '使用中 (USED)';
+    case MaterialStatus.AVAILABLE: return '可用 (AVAILABLE)';
+    case MaterialStatus.SCRAP: return '報廢 (SCRAP)';
+    default: return status;
+  }
+};
+
+const getStatusColor = (status: MaterialStatus) => {
+  switch (status) {
+    case MaterialStatus.NEW: return 'bg-blue-50 text-blue-700 border-blue-200';
+    case MaterialStatus.USED: return 'bg-orange-50 text-orange-700 border-orange-200';
+    case MaterialStatus.AVAILABLE: return 'bg-green-50 text-green-700 border-green-200';
+    case MaterialStatus.SCRAP: return 'bg-gray-100 text-gray-500 border-gray-300';
+    default: return 'bg-gray-50 text-gray-700 border-gray-200';
+  }
+};
+
 function App() {
   const [user, setUser] = useState<{username: string} | null>(null);
   const [view, setView] = useState<ViewState>('LOGIN');
@@ -120,12 +161,15 @@ function App() {
   // UI States for Modals
   const [showMaterialModal, setShowMaterialModal] = useState(false);
   const [newMaterial, setNewMaterial] = useState<MaterialFormState>({
-    name: '', spec: '', quantity: 1, maxQuantity: 100, projectId: '', siteId: '', groupId: ''
+    name: '', spec: '', quantity: 1, maxQuantity: 1, projectId: '', siteId: '', groupId: ''
   });
   
   // Edit Modal State
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
   
+  // Action Menu State (New for Dashboard)
+  const [selectedDashboardMaterial, setSelectedDashboardMaterial] = useState<{material: Material, groupId: string} | null>(null);
+
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferData, setTransferData] = useState<TransferState>({
     materialName: '', fromGroupId: '', toGroupId: '', quantity: 1
@@ -311,33 +355,50 @@ function App() {
 
   // --- CRUD: Material Registration ---
   const handleAddMaterial = () => {
+    // Note: We expect projectId to be present if currentProject is loaded.
+    // If it was unassigned, we used default scope.
     if (!newMaterial.name || !newMaterial.projectId) {
       alert("請填寫完整資訊 (名稱、專案為必填)");
       return;
     }
+    // Validation: Quantity <= Max Quantity (implicitly handled by sync, but keep check)
+    if (newMaterial.quantity > newMaterial.maxQuantity) {
+      alert(`錯誤：初始數量 (${newMaterial.quantity}) 不可大於最大數量上限 (${newMaterial.maxQuantity})。`);
+      return;
+    }
+
     const newItem: Material = {
       id: `M_${Date.now()}`,
       name: newMaterial.name,
       spec: newMaterial.spec,
       quantity: newMaterial.quantity,
-      maxQuantity: newMaterial.maxQuantity,
-      status: MaterialStatus.NEW,
+      maxQuantity: newMaterial.maxQuantity, // Synced
+      status: MaterialStatus.NEW, // Default to NEW
       projectId: newMaterial.projectId,
-      siteId: newMaterial.siteId,
-      groupId: newMaterial.groupId,
+      siteId: newMaterial.siteId,   // Can be empty (Unassigned)
+      groupId: newMaterial.groupId, // Can be empty (Unassigned)
       qrCode: `MAT-${Date.now()}`, // Auto-gen QR
       lastUpdated: new Date().toISOString(),
       reuseCount: 0
     };
     setInventory([...inventory, newItem]);
     setShowMaterialModal(false);
-    setNewMaterial({ name: '', spec: '', quantity: 1, maxQuantity: 100, projectId: '', siteId: '', groupId: '' });
+    // Reset form
+    setNewMaterial({ name: '', spec: '', quantity: 1, maxQuantity: 1, projectId: '', siteId: '', groupId: '' });
   };
 
   const handleUpdateMaterial = () => {
     if (!editingMaterial) return;
+    
+    // Validation: Max Quantity >= Current Quantity
+    if (editingMaterial.maxQuantity < editingMaterial.quantity) {
+      alert(`錯誤：最大數量 (${editingMaterial.maxQuantity}) 不可小於目前庫存數量 (${editingMaterial.quantity})。`);
+      return;
+    }
+
     setInventory(inventory.map(item => item.id === editingMaterial.id ? editingMaterial : item));
     setEditingMaterial(null);
+    setSelectedDashboardMaterial(null); // Close dashboard modal if open
   };
 
   // --- CONSUMPTION & ADDITION Logic ---
@@ -376,8 +437,6 @@ function App() {
           };
         } else {
           // ADD (Restock): Increase current quantity.
-          // Note: Max Quantity is a separate limit, usually we don't increase it automatically on restock unless logic demands.
-          // User asked for "Max Quantity" to be editable in settings. Restock just fills up the stock.
           return {
             ...item,
             quantity: item.quantity + useQty,
@@ -390,11 +449,13 @@ function App() {
 
     setInventory(updatedInventory);
     setShowUsageModal(false);
+    setSelectedDashboardMaterial(null); // Close dashboard modal if open
   };
 
 
   // --- COORDINATION: Transfer Logic ---
   const openTransferModal = (materialName: string, fromGroupId?: string) => {
+    // If fromGroupId is undefined, it means unassigned, which is empty string in our logic
     setTransferData({
       materialName,
       fromGroupId: fromGroupId || '',
@@ -406,28 +467,50 @@ function App() {
 
   const handleTransfer = () => {
     const { materialName, fromGroupId, toGroupId, quantity } = transferData;
-    if (!fromGroupId || !toGroupId || fromGroupId === toGroupId) {
-      alert("請選擇有效的來源與目的小組");
-      return;
+    
+    // Validate target (must choose a destination, even if "unassigned" in future, but currently modal forces selection)
+    // Note: If toGroupId is empty string, it means "Unassigned" (Return/Recycle)
+    
+    // Cannot transfer to same place (though fromGroupId could be '' which is fine)
+    if (fromGroupId === toGroupId) {
+       alert("來源與目的不可相同");
+       return;
     }
 
     // Find items in source group matching name
+    // If fromGroupId is '', it matches items with groupId === '' (Unassigned)
     const sourceItems = inventory.filter(i => i.name === materialName && i.groupId === fromGroupId);
+    
     let remainingToMove = quantity;
     let newInv = [...inventory];
 
     // Check if enough stock
     const totalSourceQty = sourceItems.reduce((acc, curr) => acc + curr.quantity, 0);
     if (totalSourceQty < quantity) {
-      alert(`庫存不足！來源小組只有 ${totalSourceQty}，您嘗試調撥 ${quantity}`);
+      alert(`庫存不足！來源只有 ${totalSourceQty}，您嘗試調撥 ${quantity}`);
       return;
     }
 
-    // Find target location details
-    const targetProject = projects.find(p => p.sites.some(s => s.groups.some(g => g.id === toGroupId)));
-    const targetSite = targetProject?.sites.find(s => s.groups.some(g => g.id === toGroupId));
+    // Determine Destination & Status
+    let targetProject = projects.find(p => p.id === scope.projectId);
+    let targetSiteId = '';
+    let targetStatus = MaterialStatus.USED; // Default if assigned
 
-    if (!targetProject || !targetSite) return;
+    if (toGroupId) {
+       // Moving to a specific Group -> Status: USED
+       const tProj = projects.find(p => p.sites.some(s => s.groups.some(g => g.id === toGroupId)));
+       const tSite = tProj?.sites.find(s => s.groups.some(g => g.id === toGroupId));
+       if (tProj) targetProject = tProj;
+       if (tSite) targetSiteId = tSite.id;
+       targetStatus = MaterialStatus.USED;
+    } else {
+       // Moving to Unassigned (Empty toGroupId) -> Status: AVAILABLE (Return)
+       // Keeping same project
+       targetStatus = MaterialStatus.AVAILABLE;
+       targetSiteId = '';
+    }
+
+    if (!targetProject) return;
 
     // Execute Move
     for (const item of sourceItems) {
@@ -439,23 +522,29 @@ function App() {
         // Move entire item
         newInv = newInv.map(i => i.id === item.id ? { 
           ...i, 
-          projectId: targetProject.id, 
-          siteId: targetSite.id, 
+          projectId: targetProject!.id, 
+          siteId: targetSiteId, 
           groupId: toGroupId,
+          status: targetStatus, // Update Status
           lastUpdated: new Date().toISOString()
         } : i);
       } else {
-        // Split item: Reduce source, Create target
-        newInv = newInv.map(i => i.id === item.id ? { ...i, quantity: i.quantity - moveAmount } : i);
+        // Split item: Reduce source quantity AND maxQuantity
+        newInv = newInv.map(i => i.id === item.id ? { 
+          ...i, 
+          quantity: i.quantity - moveAmount,
+          maxQuantity: Math.max(0, i.maxQuantity - moveAmount) // Reduce max from source
+        } : i);
         
         const splitItem: Material = {
           ...item,
           id: `${item.id}_split_${Date.now()}`,
           quantity: moveAmount,
-          maxQuantity: moveAmount, // New split item gets its own max/initial count? Or should we split that too? For simplicity, matching move amount.
-          projectId: targetProject.id,
-          siteId: targetSite.id,
+          maxQuantity: moveAmount, // New item gets the split allocation
+          projectId: targetProject!.id,
+          siteId: targetSiteId,
           groupId: toGroupId,
+          status: targetStatus, // Update Status
           lastUpdated: new Date().toISOString()
         };
         newInv.push(splitItem);
@@ -465,7 +554,8 @@ function App() {
 
     setInventory(newInv);
     setShowTransferModal(false);
-    alert(`成功調撥 ${quantity} ${materialName} 到目的小組`);
+    setSelectedDashboardMaterial(null); // Close dashboard modal if open
+    alert(`成功調撥 ${quantity} ${materialName}`);
   };
 
   // Toggle monitor filter
@@ -507,6 +597,12 @@ function App() {
 
     return result;
   }, [projects, scope]);
+
+  // Identify unassigned materials in current project scope
+  const unassignedMaterials = useMemo(() => {
+    if (!scope.projectId) return [];
+    return inventory.filter(i => i.projectId === scope.projectId && (!i.siteId || !i.groupId));
+  }, [inventory, scope.projectId]);
 
   // --- Render Functions ---
 
@@ -706,8 +802,80 @@ function App() {
                   </div>
                </div>
 
+               {/* NEW: Unassigned Materials Section */}
+               {unassignedMaterials.length > 0 && (
+                  <div className="mb-8">
+                     <div className="flex items-center gap-2 mb-3 px-1">
+                        <HelpCircle className="w-5 h-5 text-gray-500" />
+                        <h3 className="text-xl font-bold text-gray-600">待分配材料區 (Unassigned)</h3>
+                        <div className="h-px bg-gray-200 flex-1 ml-2 border-dashed"></div>
+                     </div>
+                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                        <div className="bg-gray-50 rounded-xl border-2 border-dashed border-gray-300 shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden h-full">
+                           <div className="bg-gray-100 border-b border-gray-200 p-4 flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                 <div className="bg-white p-1 rounded border shadow-sm">
+                                   <Layers className="w-5 h-5 text-gray-500" />
+                                 </div>
+                                 <span className="font-bold text-gray-700 text-lg">待分配材料</span>
+                              </div>
+                              <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full font-bold">
+                                {unassignedMaterials.length} 項
+                              </span>
+                           </div>
+                           <div className="p-5 space-y-4 flex-1">
+                              {/* Filter unassigned by name if filters active */}
+                              {monitorFilters.length > 0 && unassignedMaterials.filter(i => monitorFilters.includes(i.name)).length === 0 && (
+                                 <p className="text-sm text-gray-400 text-center">已篩選隱藏</p>
+                              )}
+                              
+                              {(monitorFilters.length === 0 ? unassignedMaterials : unassignedMaterials.filter(i => monitorFilters.includes(i.name))).map(item => {
+                                  const percent = item.maxQuantity > 0 ? Math.min((item.quantity / item.maxQuantity) * 100, 100) : 0;
+                                  const barColor = getProgressColor(item.quantity, item.maxQuantity);
+                                  const label = getProgressLabel(item.quantity, item.maxQuantity);
+
+                                  return (
+                                     <div 
+                                      key={item.id} 
+                                      className="group/item cursor-pointer hover:bg-gray-50 p-2 rounded transition-colors"
+                                      onClick={() => setSelectedDashboardMaterial({material: item, groupId: ''})}
+                                     >
+                                         <div className="flex justify-between items-end mb-1">
+                                            <span className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                                              {item.name} <span className="text-xs text-gray-400">({item.spec})</span>
+                                            </span>
+                                            <div className="flex items-center gap-2">
+                                               <span className={`text-base font-mono font-bold text-gray-800`}>
+                                                 {item.quantity} / {item.maxQuantity}
+                                               </span>
+                                               <div className="bg-gray-100 p-1 rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity">
+                                                  <MousePointerClick className="w-4 h-4 text-gray-500" />
+                                               </div>
+                                            </div>
+                                         </div>
+                                         <div className="h-4 w-full bg-gray-200 rounded-full overflow-hidden border border-gray-300 relative">
+                                            <div 
+                                              className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+                                              style={{ width: `${percent}%` }}
+                                            ></div>
+                                         </div>
+                                         <div className="flex justify-between mt-1">
+                                            <span className={`text-xs font-bold ${item.quantity >= item.maxQuantity * 0.7 ? 'text-emerald-600' : item.quantity < item.maxQuantity * 0.3 ? 'text-red-500' : 'text-yellow-600'}`}>
+                                              {label}
+                                            </span>
+                                            <span className="text-xs text-gray-400">{percent.toFixed(0)}%</span>
+                                         </div>
+                                     </div>
+                                  );
+                              })}
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+               )}
+
                {/* 2. Monitor Grid (Grouped by Site) */}
-               {monitorGroups.length === 0 ? (
+               {monitorGroups.length === 0 && unassignedMaterials.length === 0 ? (
                  <div className="flex flex-col items-center justify-center h-64 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
                     <Monitor className="w-12 h-12 text-slate-300 mb-2" />
                     <p className="text-slate-400 text-lg">此專案尚未建立工區或小組</p>
@@ -753,35 +921,44 @@ function App() {
                                       
                                       // Logic: Width based on Max Quantity vs Current
                                       const percent = maxQty > 0 ? Math.min((totalQty / maxQty) * 100, 100) : 0;
+                                      const barColor = getProgressColor(totalQty, maxQty);
+                                      const label = getProgressLabel(totalQty, maxQty);
 
                                       return (
-                                        <div key={filterName} className="group/item">
+                                        <div 
+                                          key={filterName} 
+                                          className="group/item cursor-pointer hover:bg-slate-50 p-2 rounded transition-colors"
+                                          onClick={() => {
+                                            // Find the first material of this type in this group to use as reference/target
+                                            const refItem = items[0];
+                                            if (refItem) setSelectedDashboardMaterial({material: refItem, groupId: group.id});
+                                          }}
+                                        >
                                            <div className="flex justify-between items-end mb-1">
                                               <span className="text-sm font-medium text-slate-600">{filterName}</span>
                                               <div className="flex items-center gap-2">
                                                  <span className={`text-base font-mono font-bold ${totalQty === 0 ? 'text-gray-300' : 'text-slate-800'}`}>
-                                                   {totalQty} <span className="text-xs text-gray-400 font-sans mx-1">/ {maxQty}</span>
+                                                   {totalQty} / {maxQty}
                                                  </span>
-                                                 <button 
-                                                   onClick={() => openTransferModal(filterName, group.id)}
-                                                   className="opacity-0 group-hover/item:opacity-100 transition-opacity p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"
-                                                   title={`從 ${group.name} 調出 ${filterName}`}
-                                                 >
-                                                   <ArrowLeftRight className="w-4 h-4" />
-                                                 </button>
+                                                 <div className="bg-gray-100 p-1 rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity">
+                                                    <MousePointerClick className="w-4 h-4 text-gray-500" />
+                                                 </div>
                                               </div>
                                            </div>
                                            {/* Progress Bar Container (Represents Max/Total) */}
                                            <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200 relative">
                                               {/* Filled Bar (Represents Current) */}
                                               <div 
-                                                className={`h-full rounded-full transition-all duration-500 ${
-                                                   totalQty === 0 ? 'bg-transparent' : 
-                                                   totalQty > maxQty ? 'bg-red-500' : 'bg-blue-500'
-                                                }`}
+                                                className={`h-full rounded-full transition-all duration-500 ${barColor}`}
                                                 style={{ width: `${percent}%` }}
                                               ></div>
                                            </div>
+                                            <div className="flex justify-between mt-1">
+                                                <span className={`text-xs font-bold ${totalQty >= maxQty * 0.7 ? 'text-emerald-600' : totalQty < maxQty * 0.3 ? 'text-red-500' : 'text-yellow-600'}`}>
+                                                  {label}
+                                                </span>
+                                                <span className="text-xs text-gray-400">{percent.toFixed(0)}%</span>
+                                             </div>
                                         </div>
                                       );
                                     })
@@ -896,7 +1073,19 @@ function App() {
                    </div>
                    <div className="flex gap-2">
                      <button 
-                       onClick={() => setShowMaterialModal(true)}
+                       onClick={() => {
+                          // Initialize with current project context to allow saving 'Unassigned'
+                          setNewMaterial({
+                            name: '', 
+                            spec: '', 
+                            quantity: 1, 
+                            maxQuantity: 1, 
+                            projectId: currentProject?.id || '', 
+                            siteId: '', 
+                            groupId: ''
+                          });
+                          setShowMaterialModal(true);
+                       }}
                        className="flex items-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-lg hover:bg-blue-700 shadow font-bold"
                      >
                        <Plus className="w-5 h-5" /> 註冊新材料
@@ -960,6 +1149,9 @@ function App() {
                            const p = projects.find(proj => proj.id === item.projectId);
                            const sName = p?.sites.find(s=>s.id===item.siteId)?.name || item.siteId;
                            const gName = p?.sites.find(s=>s.id===item.siteId)?.groups.find(g=>g.id===item.groupId)?.name || item.groupId;
+                           
+                           // Determine if Unassigned
+                           const isUnassigned = !item.siteId || !item.groupId;
 
                            return (
                              <tr key={item.id} className="hover:bg-gray-50 transition-colors">
@@ -969,21 +1161,24 @@ function App() {
                                  <div className="text-xs text-gray-400 font-mono mt-1">{item.qrCode}</div>
                                </td>
                                <td className="p-5">
-                                 <div className="flex flex-col items-start gap-2">
-                                   <span className="inline-block px-2 py-1 bg-emerald-100 text-emerald-800 text-sm font-bold rounded">
-                                     <MapPin className="w-3 h-3 inline mr-1" /> {sName}
-                                   </span>
-                                   <span className="inline-block px-2 py-1 bg-purple-100 text-purple-800 text-sm font-bold rounded">
-                                     <Users className="w-3 h-3 inline mr-1" /> {gName}
-                                   </span>
-                                 </div>
+                                 {isUnassigned ? (
+                                    <span className="inline-block px-2 py-1 bg-gray-100 text-gray-500 text-sm font-bold rounded">
+                                      <HelpCircle className="w-3 h-3 inline mr-1" /> 待分配
+                                    </span>
+                                 ) : (
+                                    <div className="flex flex-col items-start gap-2">
+                                      <span className="inline-block px-2 py-1 bg-emerald-100 text-emerald-800 text-sm font-bold rounded">
+                                        <MapPin className="w-3 h-3 inline mr-1" /> {sName}
+                                      </span>
+                                      <span className="inline-block px-2 py-1 bg-purple-100 text-purple-800 text-sm font-bold rounded">
+                                        <Users className="w-3 h-3 inline mr-1" /> {gName}
+                                      </span>
+                                    </div>
+                                 )}
                                </td>
                                <td className="p-5">
-                                  <span className={`px-3 py-1 rounded-full text-sm font-bold border ${
-                                    item.status === 'NEW' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
-                                    item.status === 'USED' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'
-                                  }`}>
-                                    {item.status}
+                                  <span className={`px-3 py-1 rounded-full text-sm font-bold border ${getStatusColor(item.status)}`}>
+                                    {getStatusLabel(item.status)}
                                   </span>
                                </td>
                                <td className="p-5 text-right font-mono font-bold text-xl text-gray-800">
@@ -1035,6 +1230,7 @@ function App() {
                       const p = projects.find(proj => proj.id === item.projectId);
                       const sName = p?.sites.find(s=>s.id===item.siteId)?.name || item.siteId;
                       const gName = p?.sites.find(s=>s.id===item.siteId)?.groups.find(g=>g.id===item.groupId)?.name || item.groupId;
+                      const isUnassigned = !item.siteId || !item.groupId;
 
                       return (
                         <div key={item.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
@@ -1043,21 +1239,26 @@ function App() {
                                <h3 className="text-xl font-bold text-gray-900">{item.name}</h3>
                                <p className="text-sm text-gray-500 mt-1">{item.spec}</p>
                              </div>
-                             <span className={`px-2 py-1 rounded text-xs font-bold ${
-                               item.status === 'NEW' ? 'bg-blue-100 text-blue-700' : 
-                               item.status === 'USED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                             }`}>
-                               {item.status}
+                             <span className={`px-2 py-1 rounded text-xs font-bold ${getStatusColor(item.status)}`}>
+                               {getStatusLabel(item.status)}
                              </span>
                           </div>
                           
                           <div className="flex flex-wrap gap-2 mb-4">
-                             <span className="inline-flex items-center px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded">
-                               <MapPin className="w-3 h-3 mr-1" /> {sName}
-                             </span>
-                             <span className="inline-flex items-center px-2 py-1 bg-purple-100 text-purple-800 text-xs font-bold rounded">
-                               <Users className="w-3 h-3 mr-1" /> {gName}
-                             </span>
+                             {isUnassigned ? (
+                                <span className="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-500 text-xs font-bold rounded">
+                                   <HelpCircle className="w-3 h-3 mr-1" /> 待分配
+                                </span>
+                             ) : (
+                               <>
+                                 <span className="inline-flex items-center px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded">
+                                   <MapPin className="w-3 h-3 mr-1" /> {sName}
+                                 </span>
+                                 <span className="inline-flex items-center px-2 py-1 bg-purple-100 text-purple-800 text-xs font-bold rounded">
+                                   <Users className="w-3 h-3 mr-1" /> {gName}
+                                 </span>
+                               </>
+                             )}
                           </div>
 
                           <div className="flex justify-between items-center pt-3 border-t border-gray-100">
@@ -1228,7 +1429,7 @@ function App() {
              <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                    <div>
-                     <label className="block text-sm font-bold text-gray-700 mb-1">材料名稱</label>
+                     <label className="block text-sm font-bold text-gray-700 mb-1">材料名稱 <span className="text-red-500">*</span></label>
                      <input type="text" className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.name} onChange={e => setNewMaterial({...newMaterial, name: e.target.value})} placeholder="例如: 鋼管" />
                    </div>
                    <div>
@@ -1236,32 +1437,38 @@ function App() {
                      <input type="text" className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.spec} onChange={e => setNewMaterial({...newMaterial, spec: e.target.value})} placeholder="例如: 50mm x 3m" />
                    </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                   <div>
-                     <label className="block text-sm font-bold text-gray-700 mb-1">初始數量</label>
-                     <input type="number" className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.quantity} onChange={e => setNewMaterial({...newMaterial, quantity: parseInt(e.target.value) || 0})} />
-                   </div>
-                   <div>
-                     <label className="block text-sm font-bold text-gray-700 mb-1">最大數量 (上限)</label>
-                     <input type="number" className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.maxQuantity} onChange={e => setNewMaterial({...newMaterial, maxQuantity: parseInt(e.target.value) || 0})} />
-                   </div>
+                <div>
+                   <label className="block text-sm font-bold text-gray-700 mb-1">初始數量 <span className="text-red-500">*</span></label>
+                   <input 
+                     type="number" 
+                     className="w-full border rounded p-3 text-gray-900 bg-white" 
+                     value={newMaterial.quantity} 
+                     onChange={e => {
+                        const val = parseInt(e.target.value) || 0;
+                        setNewMaterial({...newMaterial, quantity: val, maxQuantity: val});
+                     }} 
+                   />
+                   <p className="text-xs text-gray-500 mt-1">最大數量將自動同步為初始數量。</p>
                 </div>
                 
                 <div className="bg-gray-50 p-4 rounded-lg space-y-3">
-                   <p className="text-xs font-bold text-gray-500 uppercase">初始位置設定</p>
+                   <p className="text-xs font-bold text-gray-500 uppercase">初始位置設定 (選填)</p>
                    {/* Scoped Logic: Only show sites/groups for CURRENT project */}
                    <div className="p-2 border rounded bg-gray-100 text-sm font-bold text-gray-600 mb-2">
                       專案: {currentProject?.name}
                    </div>
                    
-                   <select className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.siteId} onChange={e => setNewMaterial({...newMaterial, projectId: currentProject?.id || '', siteId: e.target.value, groupId: ''})}>
-                      <option value="">選擇工區</option>
-                      {currentProject?.sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                   </select>
-                   <select className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.groupId} onChange={e => setNewMaterial({...newMaterial, groupId: e.target.value})} disabled={!newMaterial.siteId}>
-                      <option value="">選擇小組</option>
-                      {currentProject?.sites.find(s=>s.id===newMaterial.siteId)?.groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                   </select>
+                   <div className="grid grid-cols-2 gap-3">
+                     <select className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.siteId} onChange={e => setNewMaterial({...newMaterial, projectId: currentProject?.id || '', siteId: e.target.value, groupId: ''})}>
+                        <option value="">(未分配) 選擇工區</option>
+                        {currentProject?.sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                     </select>
+                     <select className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.groupId} onChange={e => setNewMaterial({...newMaterial, groupId: e.target.value})} disabled={!newMaterial.siteId}>
+                        <option value="">(未分配) 選擇小組</option>
+                        {currentProject?.sites.find(s=>s.id===newMaterial.siteId)?.groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                     </select>
+                   </div>
+                   <p className="text-xs text-gray-400">若不選擇，材料將標記為「待分配」且狀態為「全新」。</p>
                 </div>
 
                 <div className="pt-4 flex justify-end gap-3">
@@ -1299,10 +1506,26 @@ function App() {
                    <input type="number" className="w-full border rounded p-3 text-gray-900 bg-white" value={editingMaterial.maxQuantity} onChange={e => setEditingMaterial({...editingMaterial, maxQuantity: parseInt(e.target.value) || 0})} />
                    <p className="text-xs text-gray-500 mt-1">此數值用於計算監控進度條的百分比。</p>
                 </div>
+
+                <div>
+                   <label className="block text-sm font-bold text-gray-700 mb-1">狀態</label>
+                   <select 
+                     className="w-full border rounded p-3 text-gray-900 bg-white"
+                     value={editingMaterial.status}
+                     onChange={e => setEditingMaterial({...editingMaterial, status: e.target.value as MaterialStatus})}
+                   >
+                     <option value={MaterialStatus.NEW}>全新 (NEW)</option>
+                     <option value={MaterialStatus.USED}>使用中 (USED)</option>
+                     <option value={MaterialStatus.AVAILABLE}>可用 (AVAILABLE)</option>
+                     <option value={MaterialStatus.SCRAP}>報廢 (SCRAP)</option>
+                   </select>
+                </div>
                 
                 <div className="bg-gray-50 p-4 rounded-lg text-sm text-gray-600">
                    <p className="mb-1"><span className="font-bold">目前庫存:</span> {editingMaterial.quantity}</p>
-                   <p><span className="font-bold">位置:</span> {projects.find(p=>p.id===editingMaterial.projectId)?.name} / {projects.find(p=>p.id===editingMaterial.projectId)?.sites.find(s=>s.id===editingMaterial.siteId)?.name} / {projects.find(p=>p.id===editingMaterial.projectId)?.sites.find(s=>s.id===editingMaterial.siteId)?.groups.find(g=>g.id===editingMaterial.groupId)?.name}</p>
+                   <p><span className="font-bold">位置:</span> {(!editingMaterial.siteId || !editingMaterial.groupId) ? "待分配" : 
+                      `${projects.find(p=>p.id===editingMaterial.projectId)?.name} / ${projects.find(p=>p.id===editingMaterial.projectId)?.sites.find(s=>s.id===editingMaterial.siteId)?.name} / ${projects.find(p=>p.id===editingMaterial.projectId)?.sites.find(s=>s.id===editingMaterial.siteId)?.groups.find(g=>g.id===editingMaterial.groupId)?.name}`
+                   }</p>
                 </div>
 
                 <div className="pt-4 flex justify-end gap-3">
@@ -1330,13 +1553,14 @@ function App() {
                 </div>
 
                 <div>
-                   <label className="block text-xs font-bold text-gray-500 uppercase mb-1">來源小組 (調出)</label>
+                   <label className="block text-xs font-bold text-gray-500 uppercase mb-1">來源 (調出)</label>
                    <select 
                      className="w-full border rounded p-3 bg-gray-50 text-gray-900"
                      value={transferData.fromGroupId}
                      onChange={e => setTransferData({...transferData, fromGroupId: e.target.value})}
                    >
-                     <option value="">請選擇來源</option>
+                     {/* Allow selecting unassigned if current scope allows, but usually we pre-fill this */}
+                     <option value="">(未分配)</option>
                      {projects.find(p => p.id === scope.projectId)?.sites.flatMap(s => s.groups).map(g => (
                        <option key={g.id} value={g.id}>{g.name}</option>
                      ))}
@@ -1354,7 +1578,7 @@ function App() {
                      value={transferData.toGroupId}
                      onChange={e => setTransferData({...transferData, toGroupId: e.target.value})}
                    >
-                     <option value="">請選擇目的</option>
+                     <option value="">(未分配) - 退回/回收</option>
                      {projects.find(p => p.id === scope.projectId)?.sites.flatMap(s => s.groups).map(g => (
                        <option key={g.id} value={g.id} disabled={g.id === transferData.fromGroupId}>{g.name}</option>
                      ))}
@@ -1380,6 +1604,53 @@ function App() {
                 </div>
              </div>
           </div>
+        </div>
+      )}
+
+      {/* 2.5 Dashboard Action Modal (NEW) */}
+      {selectedDashboardMaterial && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in duration-200">
+              <div className="bg-slate-800 p-4 text-white flex justify-between items-center">
+                 <div>
+                   <h3 className="font-bold text-lg">{selectedDashboardMaterial.material.name}</h3>
+                   <p className="text-sm opacity-80">{selectedDashboardMaterial.material.spec}</p>
+                 </div>
+                 <button onClick={() => setSelectedDashboardMaterial(null)}><X className="w-6 h-6" /></button>
+              </div>
+              <div className="p-2 grid grid-cols-1 divide-y divide-gray-100">
+                 <button 
+                   onClick={() => openTransferModal(selectedDashboardMaterial.material.name, selectedDashboardMaterial.groupId)}
+                   className="flex items-center gap-3 p-4 hover:bg-blue-50 hover:text-blue-700 text-gray-700 transition-colors"
+                 >
+                   <div className="bg-blue-100 p-2 rounded-full text-blue-600"><ArrowLeftRight className="w-5 h-5" /></div>
+                   <div className="text-left">
+                      <div className="font-bold">調撥分配</div>
+                      <div className="text-xs opacity-70">移動位置或退回未分配區</div>
+                   </div>
+                 </button>
+                 <button 
+                   onClick={() => openUsageModal(selectedDashboardMaterial.material, 'CONSUME')}
+                   className="flex items-center gap-3 p-4 hover:bg-orange-50 hover:text-orange-700 text-gray-700 transition-colors"
+                 >
+                   <div className="bg-orange-100 p-2 rounded-full text-orange-600"><MinusCircle className="w-5 h-5" /></div>
+                   <div className="text-left">
+                      <div className="font-bold">領用消耗</div>
+                      <div className="text-xs opacity-70">登記使用數量</div>
+                   </div>
+                 </button>
+                 <button 
+                   onClick={() => setEditingMaterial(selectedDashboardMaterial.material)}
+                   className="flex items-center gap-3 p-4 hover:bg-gray-50 text-gray-700 transition-colors"
+                 >
+                   <div className="bg-gray-100 p-2 rounded-full text-gray-600"><Edit className="w-5 h-5" /></div>
+                   <div className="text-left">
+                      <div className="font-bold">編輯詳情</div>
+                      <div className="text-xs opacity-70">修改數量、狀態或備註</div>
+                   </div>
+                 </button>
+              </div>
+           </div>
         </div>
       )}
 

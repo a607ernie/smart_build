@@ -1,7 +1,8 @@
 export enum MaterialStatus {
-  NEW = 'NEW',
-  USED = 'USED',
-  DAMAGED = 'DAMAGED'
+  NEW = 'NEW',         // 全新 (剛入庫，未分配)
+  USED = 'USED',       // 使用中 (已分配)
+  AVAILABLE = 'AVAILABLE', // 可用 (剩餘回收，未分配)
+  SCRAP = 'SCRAP'      // 報廢 (損壞，未分配)
 }
 
 // Hierarchical Data Structures
