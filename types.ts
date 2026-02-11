@@ -43,17 +43,10 @@ export interface Material {
 export interface Log {
   id: string;
   materialId: string;
-  action: 'CHECK_IN' | 'CHECK_OUT' | 'RECYCLE';
+  action: 'CHECK_IN' | 'CHECK_OUT' | 'RECYCLE' | 'TRANSFER';
   timestamp: string;
   userId: string;
   details?: string;
 }
 
-export interface AllocationSuggestion {
-  materialName: string;
-  suggestedSource: Material[];
-  reasoning: string;
-  status: 'optimized' | 'shortage';
-}
-
-export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVENTORY' | 'SCANNER' | 'REPORTS' | 'AI_ADVISOR';
+export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVENTORY' | 'SCANNER' | 'REPORTS' | 'SETTINGS';
