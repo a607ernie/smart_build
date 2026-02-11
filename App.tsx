@@ -31,7 +31,11 @@ import {
   MoreHorizontal,
   Briefcase,
   ArrowLeft,
-  MinusCircle
+  MinusCircle,
+  PlusCircle,
+  ShoppingCart,
+  Edit,
+  Pencil
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -59,7 +63,7 @@ interface MaterialFormState {
   name: string;
   spec: string;
   quantity: number;
-  unit: string;
+  maxQuantity: number;
   projectId: string;
   siteId: string;
   groupId: string;
@@ -77,7 +81,7 @@ interface UsageState {
   name: string;
   currentQty: number;
   useQty: number;
-  unit: string;
+  type: 'CONSUME' | 'ADD'; // Distinguish between consuming and purchasing
 }
 
 // New Interfaces for Hierarchy Modals
@@ -116,18 +120,21 @@ function App() {
   // UI States for Modals
   const [showMaterialModal, setShowMaterialModal] = useState(false);
   const [newMaterial, setNewMaterial] = useState<MaterialFormState>({
-    name: '', spec: '', quantity: 1, unit: '個', projectId: '', siteId: '', groupId: ''
+    name: '', spec: '', quantity: 1, maxQuantity: 100, projectId: '', siteId: '', groupId: ''
   });
+  
+  // Edit Modal State
+  const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
   
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferData, setTransferData] = useState<TransferState>({
     materialName: '', fromGroupId: '', toGroupId: '', quantity: 1
   });
 
-  // Usage/Consumption Modal
+  // Usage/Consumption/Add Stock Modal
   const [showUsageModal, setShowUsageModal] = useState(false);
   const [usageData, setUsageData] = useState<UsageState>({
-    materialId: '', name: '', currentQty: 0, useQty: 0, unit: ''
+    materialId: '', name: '', currentQty: 0, useQty: 0, type: 'CONSUME'
   });
 
   // --- New Modal States ---
@@ -313,7 +320,7 @@ function App() {
       name: newMaterial.name,
       spec: newMaterial.spec,
       quantity: newMaterial.quantity,
-      unit: newMaterial.unit,
+      maxQuantity: newMaterial.maxQuantity,
       status: MaterialStatus.NEW,
       projectId: newMaterial.projectId,
       siteId: newMaterial.siteId,
@@ -324,45 +331,59 @@ function App() {
     };
     setInventory([...inventory, newItem]);
     setShowMaterialModal(false);
-    setNewMaterial({ name: '', spec: '', quantity: 1, unit: '個', projectId: '', siteId: '', groupId: '' });
+    setNewMaterial({ name: '', spec: '', quantity: 1, maxQuantity: 100, projectId: '', siteId: '', groupId: '' });
   };
 
-  // --- CONSUMPTION: Usage Logic ---
-  const openUsageModal = (item: Material) => {
+  const handleUpdateMaterial = () => {
+    if (!editingMaterial) return;
+    setInventory(inventory.map(item => item.id === editingMaterial.id ? editingMaterial : item));
+    setEditingMaterial(null);
+  };
+
+  // --- CONSUMPTION & ADDITION Logic ---
+  const openUsageModal = (item: Material, type: 'CONSUME' | 'ADD') => {
     setUsageData({
       materialId: item.id,
       name: item.name,
       currentQty: item.quantity,
       useQty: 1,
-      unit: item.unit
+      type
     });
     setShowUsageModal(true);
   };
 
-  const handleUsage = () => {
-    const { materialId, useQty } = usageData;
+  const handleUsageOrAdd = () => {
+    const { materialId, useQty, type } = usageData;
     if (useQty <= 0) return;
     
     // Find item
     const targetItem = inventory.find(i => i.id === materialId);
     if (!targetItem) return;
 
-    if (useQty > targetItem.quantity) {
+    if (type === 'CONSUME' && useQty > targetItem.quantity) {
       alert(`錯誤：消耗數量 (${useQty}) 超過當前庫存 (${targetItem.quantity})`);
       return;
     }
 
-    // Update Inventory: Reduce quantity in place
-    // If quantity becomes 0, we can either remove it or keep it as 0. Let's keep it as 0 for now or filter out later.
-    // User requested "modify quantity in original group", so simple subtraction.
-    
+    // Update Inventory
     const updatedInventory = inventory.map(item => {
       if (item.id === materialId) {
-        return {
-          ...item,
-          quantity: item.quantity - useQty,
-          lastUpdated: new Date().toISOString()
-        };
+        if (type === 'CONSUME') {
+          return {
+            ...item,
+            quantity: item.quantity - useQty,
+            lastUpdated: new Date().toISOString()
+          };
+        } else {
+          // ADD (Restock): Increase current quantity.
+          // Note: Max Quantity is a separate limit, usually we don't increase it automatically on restock unless logic demands.
+          // User asked for "Max Quantity" to be editable in settings. Restock just fills up the stock.
+          return {
+            ...item,
+            quantity: item.quantity + useQty,
+            lastUpdated: new Date().toISOString()
+          };
+        }
       }
       return item;
     });
@@ -431,6 +452,7 @@ function App() {
           ...item,
           id: `${item.id}_split_${Date.now()}`,
           quantity: moveAmount,
+          maxQuantity: moveAmount, // New split item gets its own max/initial count? Or should we split that too? For simplicity, matching move amount.
           projectId: targetProject.id,
           siteId: targetSite.id,
           groupId: toGroupId,
@@ -727,8 +749,10 @@ function App() {
                                     activeFilters.map(filterName => {
                                       const items = groupMaterials.filter(i => i.name === filterName);
                                       const totalQty = items.reduce((a,c) => a + c.quantity, 0);
-                                      const unit = items[0]?.unit || '-';
-                                      const percent = Math.min((totalQty / 200) * 100, 100);
+                                      const maxQty = items.reduce((a,c) => a + (c.maxQuantity || c.quantity), 0);
+                                      
+                                      // Logic: Width based on Max Quantity vs Current
+                                      const percent = maxQty > 0 ? Math.min((totalQty / maxQty) * 100, 100) : 0;
 
                                       return (
                                         <div key={filterName} className="group/item">
@@ -736,7 +760,7 @@ function App() {
                                               <span className="text-sm font-medium text-slate-600">{filterName}</span>
                                               <div className="flex items-center gap-2">
                                                  <span className={`text-base font-mono font-bold ${totalQty === 0 ? 'text-gray-300' : 'text-slate-800'}`}>
-                                                   {totalQty} <span className="text-xs text-gray-400 font-sans">{unit}</span>
+                                                   {totalQty} <span className="text-xs text-gray-400 font-sans mx-1">/ {maxQty}</span>
                                                  </span>
                                                  <button 
                                                    onClick={() => openTransferModal(filterName, group.id)}
@@ -747,11 +771,13 @@ function App() {
                                                  </button>
                                               </div>
                                            </div>
-                                           <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden">
+                                           {/* Progress Bar Container (Represents Max/Total) */}
+                                           <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200 relative">
+                                              {/* Filled Bar (Represents Current) */}
                                               <div 
                                                 className={`h-full rounded-full transition-all duration-500 ${
                                                    totalQty === 0 ? 'bg-transparent' : 
-                                                   totalQty < 20 ? 'bg-red-400' : 'bg-blue-500'
+                                                   totalQty > maxQty ? 'bg-red-500' : 'bg-blue-500'
                                                 }`}
                                                 style={{ width: `${percent}%` }}
                                               ></div>
@@ -925,7 +951,7 @@ function App() {
                            <th className="p-5">材料資訊</th>
                            <th className="p-5">歸屬位置 (工區/小組)</th>
                            <th className="p-5">狀態</th>
-                           <th className="p-5 text-right">數量</th>
+                           <th className="p-5 text-right">數量 (上限)</th>
                            <th className="p-5 text-center">操作</th>
                          </tr>
                        </thead>
@@ -960,17 +986,34 @@ function App() {
                                     {item.status}
                                   </span>
                                </td>
-                               <td className="p-5 text-right font-mono font-bold text-xl text-gray-800">{item.quantity} <span className="text-sm font-normal text-gray-400">{item.unit}</span></td>
+                               <td className="p-5 text-right font-mono font-bold text-xl text-gray-800">
+                                  {item.quantity} 
+                                  <span className="text-sm text-gray-400 font-normal ml-1">/ {item.maxQuantity}</span>
+                               </td>
                                <td className="p-5">
-                                 <div className="flex justify-center items-center gap-3">
+                                 <div className="flex justify-center items-center gap-2">
                                    <button 
-                                     onClick={() => openUsageModal(item)}
+                                     onClick={() => setEditingMaterial(item)}
+                                     className="flex items-center gap-1 bg-gray-100 text-gray-700 px-3 py-1.5 rounded hover:bg-gray-200 text-sm font-bold"
+                                     title="編輯"
+                                   >
+                                     <Pencil className="w-4 h-4" /> 編輯
+                                   </button>
+                                   <button 
+                                     onClick={() => openUsageModal(item, 'ADD')}
+                                     className="flex items-center gap-1 bg-blue-100 text-blue-700 px-3 py-1.5 rounded hover:bg-blue-200 text-sm font-bold"
+                                     title="補貨"
+                                   >
+                                     <PlusCircle className="w-4 h-4" /> 補貨
+                                   </button>
+                                   <button 
+                                     onClick={() => openUsageModal(item, 'CONSUME')}
                                      className="flex items-center gap-1 bg-orange-100 text-orange-700 px-3 py-1.5 rounded hover:bg-orange-200 text-sm font-bold"
-                                     title="消耗/使用"
+                                     title="領用"
                                    >
                                      <MinusCircle className="w-4 h-4" /> 領用
                                    </button>
-                                   <button onClick={() => openDeleteModal('MATERIAL', item.id, item.name)} className="text-gray-400 hover:text-red-600 p-2">
+                                   <button onClick={() => openDeleteModal('MATERIAL', item.id, item.name)} className="text-gray-400 hover:text-red-600 p-2" title="刪除">
                                      <Trash2 className="w-5 h-5" />
                                    </button>
                                  </div>
@@ -1019,23 +1062,35 @@ function App() {
 
                           <div className="flex justify-between items-center pt-3 border-t border-gray-100">
                              <div className="font-mono text-2xl font-bold text-gray-800">
-                               {item.quantity} <span className="text-sm font-sans text-gray-400 font-normal">{item.unit}</span>
+                               {item.quantity} <span className="text-sm text-gray-400 font-normal">/ {item.maxQuantity}</span>
                              </div>
-                             <div className="flex gap-2">
+                          </div>
+                          <div className="grid grid-cols-4 gap-2 mt-3">
                                <button 
-                                 onClick={() => openUsageModal(item)}
-                                 className="flex items-center gap-1 bg-orange-100 text-orange-700 px-4 py-2 rounded-lg hover:bg-orange-200 text-sm font-bold"
+                                 onClick={() => setEditingMaterial(item)}
+                                 className="flex items-center justify-center gap-1 bg-gray-100 text-gray-700 p-2 rounded-lg hover:bg-gray-200 text-xs font-bold"
+                               >
+                                 <Pencil className="w-4 h-4" /> 編輯
+                               </button>
+                               <button 
+                                 onClick={() => openUsageModal(item, 'ADD')}
+                                 className="flex items-center justify-center gap-1 bg-blue-100 text-blue-700 p-2 rounded-lg hover:bg-blue-200 text-xs font-bold"
+                               >
+                                 <PlusCircle className="w-4 h-4" /> 補貨
+                               </button>
+                               <button 
+                                 onClick={() => openUsageModal(item, 'CONSUME')}
+                                 className="flex items-center justify-center gap-1 bg-orange-100 text-orange-700 p-2 rounded-lg hover:bg-orange-200 text-xs font-bold"
                                >
                                  <MinusCircle className="w-4 h-4" /> 領用
                                </button>
                                <button 
                                  onClick={() => openDeleteModal('MATERIAL', item.id, item.name)} 
-                                 className="p-2 text-gray-400 hover:text-red-500 bg-gray-50 rounded-lg"
+                                 className="flex items-center justify-center p-2 text-gray-400 hover:text-red-500 bg-gray-50 rounded-lg"
                                >
                                  <Trash2 className="w-5 h-5" />
                                </button>
                              </div>
-                          </div>
                         </div>
                       );
                   })}
@@ -1113,41 +1168,49 @@ function App() {
         </div>
       )}
 
-      {/* 0.6 Usage (Consumption) Modal */}
+      {/* 0.6 Usage (Consumption/Add) Modal */}
       {showUsageModal && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 animate-in zoom-in duration-200 border-t-4 border-orange-500">
+          <div className={`bg-white rounded-xl shadow-xl w-full max-w-sm p-6 animate-in zoom-in duration-200 border-t-4 ${usageData.type === 'CONSUME' ? 'border-orange-500' : 'border-blue-500'}`}>
              <div className="flex items-center gap-2 mb-4">
-                <MinusCircle className="w-6 h-6 text-orange-500" />
-                <h3 className="text-xl font-bold text-gray-800">材料領用/消耗</h3>
+                {usageData.type === 'CONSUME' ? <MinusCircle className="w-6 h-6 text-orange-500" /> : <PlusCircle className="w-6 h-6 text-blue-500" />}
+                <h3 className="text-xl font-bold text-gray-800">
+                  {usageData.type === 'CONSUME' ? '材料領用/消耗' : '材料採購/補貨'}
+                </h3>
              </div>
              
-             <div className="bg-orange-50 p-3 rounded mb-4">
-               <p className="text-sm text-orange-800 font-bold">{usageData.name}</p>
-               <p className="text-xs text-orange-600">當前庫存: {usageData.currentQty} {usageData.unit}</p>
+             <div className={`${usageData.type === 'CONSUME' ? 'bg-orange-50 text-orange-800' : 'bg-blue-50 text-blue-800'} p-3 rounded mb-4`}>
+               <p className="text-sm font-bold">{usageData.name}</p>
+               <p className="text-xs opacity-80">當前庫存: {usageData.currentQty}</p>
              </div>
 
              <div className="mb-6">
-                <label className="block text-sm font-bold text-gray-600 mb-2">領用數量</label>
+                <label className="block text-sm font-bold text-gray-600 mb-2">
+                   {usageData.type === 'CONSUME' ? '領用數量' : '補貨數量'}
+                </label>
                 <div className="flex items-center gap-2">
                    <input 
                     type="number" 
                     autoFocus
                     min={1}
-                    max={usageData.currentQty}
-                    className="w-full border-2 border-orange-200 rounded-lg p-3 text-2xl font-mono text-center text-gray-900 focus:border-orange-500 outline-none" 
+                    max={usageData.type === 'CONSUME' ? usageData.currentQty : undefined}
+                    className={`w-full border-2 rounded-lg p-3 text-2xl font-mono text-center text-gray-900 outline-none ${usageData.type === 'CONSUME' ? 'border-orange-200 focus:border-orange-500' : 'border-blue-200 focus:border-blue-500'}`}
                     value={usageData.useQty}
                     onChange={e => setUsageData({...usageData, useQty: parseInt(e.target.value) || 0})}
                   />
-                  <span className="text-gray-500 font-bold">{usageData.unit}</span>
                 </div>
-                <p className="text-xs text-gray-400 mt-2 text-center">操作後庫存將變更為: {usageData.currentQty - usageData.useQty}</p>
+                <p className="text-xs text-gray-400 mt-2 text-center">
+                  操作後庫存將變更為: {usageData.type === 'CONSUME' ? usageData.currentQty - usageData.useQty : usageData.currentQty + usageData.useQty}
+                </p>
              </div>
 
              <div className="flex justify-end gap-3">
                 <button onClick={() => setShowUsageModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-bold">取消</button>
-                <button onClick={handleUsage} className="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-bold">
-                  確認領用
+                <button 
+                  onClick={handleUsageOrAdd} 
+                  className={`px-6 py-2 text-white rounded-lg font-bold ${usageData.type === 'CONSUME' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-500 hover:bg-blue-600'}`}
+                >
+                  確認{usageData.type === 'CONSUME' ? '領用' : '補貨'}
                 </button>
              </div>
           </div>
@@ -1175,12 +1238,12 @@ function App() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                    <div>
-                     <label className="block text-sm font-bold text-gray-700 mb-1">數量</label>
+                     <label className="block text-sm font-bold text-gray-700 mb-1">初始數量</label>
                      <input type="number" className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.quantity} onChange={e => setNewMaterial({...newMaterial, quantity: parseInt(e.target.value) || 0})} />
                    </div>
                    <div>
-                     <label className="block text-sm font-bold text-gray-700 mb-1">單位</label>
-                     <input type="text" className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.unit} onChange={e => setNewMaterial({...newMaterial, unit: e.target.value})} />
+                     <label className="block text-sm font-bold text-gray-700 mb-1">最大數量 (上限)</label>
+                     <input type="number" className="w-full border rounded p-3 text-gray-900 bg-white" value={newMaterial.maxQuantity} onChange={e => setNewMaterial({...newMaterial, maxQuantity: parseInt(e.target.value) || 0})} />
                    </div>
                 </div>
                 
@@ -1205,6 +1268,47 @@ function App() {
                    <button onClick={() => setShowMaterialModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded font-bold">取消</button>
                    <button onClick={handleAddMaterial} className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold flex items-center gap-2">
                      <Save className="w-5 h-5" /> 儲存
+                   </button>
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 1.1 Edit Material Modal */}
+      {editingMaterial && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 animate-in zoom-in duration-200">
+             <div className="flex justify-between items-center mb-6 border-b pb-4">
+               <h3 className="text-xl font-bold text-gray-800">編輯材料資訊</h3>
+               <button onClick={() => setEditingMaterial(null)}><X className="w-6 h-6 text-gray-500" /></button>
+             </div>
+             <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                   <div>
+                     <label className="block text-sm font-bold text-gray-700 mb-1">材料名稱</label>
+                     <input type="text" className="w-full border rounded p-3 text-gray-900 bg-white" value={editingMaterial.name} onChange={e => setEditingMaterial({...editingMaterial, name: e.target.value})} />
+                   </div>
+                   <div>
+                     <label className="block text-sm font-bold text-gray-700 mb-1">規格</label>
+                     <input type="text" className="w-full border rounded p-3 text-gray-900 bg-white" value={editingMaterial.spec} onChange={e => setEditingMaterial({...editingMaterial, spec: e.target.value})} />
+                   </div>
+                </div>
+                <div>
+                   <label className="block text-sm font-bold text-gray-700 mb-1">最大數量 (上限)</label>
+                   <input type="number" className="w-full border rounded p-3 text-gray-900 bg-white" value={editingMaterial.maxQuantity} onChange={e => setEditingMaterial({...editingMaterial, maxQuantity: parseInt(e.target.value) || 0})} />
+                   <p className="text-xs text-gray-500 mt-1">此數值用於計算監控進度條的百分比。</p>
+                </div>
+                
+                <div className="bg-gray-50 p-4 rounded-lg text-sm text-gray-600">
+                   <p className="mb-1"><span className="font-bold">目前庫存:</span> {editingMaterial.quantity}</p>
+                   <p><span className="font-bold">位置:</span> {projects.find(p=>p.id===editingMaterial.projectId)?.name} / {projects.find(p=>p.id===editingMaterial.projectId)?.sites.find(s=>s.id===editingMaterial.siteId)?.name} / {projects.find(p=>p.id===editingMaterial.projectId)?.sites.find(s=>s.id===editingMaterial.siteId)?.groups.find(g=>g.id===editingMaterial.groupId)?.name}</p>
+                </div>
+
+                <div className="pt-4 flex justify-end gap-3">
+                   <button onClick={() => setEditingMaterial(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded font-bold">取消</button>
+                   <button onClick={handleUpdateMaterial} className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold flex items-center gap-2">
+                     <Save className="w-5 h-5" /> 更新
                    </button>
                 </div>
              </div>

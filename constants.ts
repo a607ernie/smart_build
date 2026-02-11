@@ -63,7 +63,7 @@ export const INITIAL_INVENTORY: Material[] = [
     qrCode: 'M001-STEEL-50-3',
     lastUpdated: new Date().toISOString(),
     quantity: 100,
-    unit: '支',
+    maxQuantity: 100,
     reuseCount: 0
   },
   {
@@ -77,7 +77,7 @@ export const INITIAL_INVENTORY: Material[] = [
     qrCode: 'M002-STEEL-50-3-USED',
     lastUpdated: new Date().toISOString(),
     quantity: 15,
-    unit: '支',
+    maxQuantity: 50, 
     reuseCount: 2
   },
   {
@@ -91,7 +91,7 @@ export const INITIAL_INVENTORY: Material[] = [
     qrCode: 'M003-WOOD-2x4',
     lastUpdated: new Date().toISOString(),
     quantity: 200,
-    unit: '片',
+    maxQuantity: 200,
     reuseCount: 0
   },
   {
@@ -105,7 +105,7 @@ export const INITIAL_INVENTORY: Material[] = [
     qrCode: 'M004-CLAMP-SWIVEL',
     lastUpdated: new Date().toISOString(),
     quantity: 50,
-    unit: '個',
+    maxQuantity: 100,
     reuseCount: 5
   },
   {
@@ -119,7 +119,7 @@ export const INITIAL_INVENTORY: Material[] = [
     qrCode: 'M005-BARRIER',
     lastUpdated: new Date().toISOString(),
     quantity: 10,
-    unit: '組',
+    maxQuantity: 20,
     reuseCount: 12
   }
 ];

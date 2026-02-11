@@ -36,7 +36,7 @@ export interface Material {
   qrCode: string;
   lastUpdated: string;
   quantity: number;
-  unit: string;
+  maxQuantity: number; // Renamed from initialQuantity, represents the upper limit/capacity
   reuseCount: number;
 }
 
