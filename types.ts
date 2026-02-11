@@ -49,4 +49,4 @@ export interface Log {
   details?: string;
 }
 
-export type ViewState = 'LOGIN' | 'DASHBOARD' | 'INVENTORY' | 'SCANNER' | 'REPORTS' | 'SETTINGS';
+export type ViewState = 'LOGIN' | 'PROJECT_SELECT' | 'DASHBOARD' | 'INVENTORY' | 'SCANNER' | 'REPORTS' | 'SETTINGS';

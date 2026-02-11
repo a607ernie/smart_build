@@ -28,7 +28,8 @@ import {
   AlertTriangle,
   Filter,
   Monitor,
-  MoreHorizontal
+  MoreHorizontal,
+  Briefcase
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -95,7 +96,7 @@ function App() {
   const [scannedMaterial, setScannedMaterial] = useState<Material | null>(null);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
 
-  // Navigation Scope
+  // Navigation Scope - Defaults to null
   const [scope, setScope] = useState<Scope>({ projectId: null, siteId: null, groupId: null });
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
@@ -129,12 +130,9 @@ function App() {
   }, [inventory]);
 
   // --- Helpers ---
-  const toggleNode = (id: string) => {
-    const newExpanded = new Set(expandedNodes);
-    if (newExpanded.has(id)) newExpanded.delete(id);
-    else newExpanded.add(id);
-    setExpandedNodes(newExpanded);
-  };
+  const currentProject = useMemo(() => {
+    return projects.find(p => p.id === scope.projectId);
+  }, [projects, scope.projectId]);
 
   const filteredInventory = useMemo(() => {
     return inventory.filter(item => {
@@ -170,7 +168,7 @@ function App() {
     e.preventDefault();
     if (loginForm.username === MOCK_USER.username && loginForm.password === MOCK_USER.password) {
       setUser({ username: MOCK_USER.username });
-      setView('DASHBOARD');
+      setView('PROJECT_SELECT'); // Go to Project Selection instead of Dashboard
     } else {
       alert('帳號或密碼錯誤。請嘗試 admin / password');
     }
@@ -180,6 +178,17 @@ function App() {
     setUser(null);
     setView('LOGIN');
     setLoginForm({ username: '', password: '' });
+    setScope({ projectId: null, siteId: null, groupId: null });
+  };
+
+  const selectProject = (projectId: string) => {
+    setScope({ projectId, siteId: null, groupId: null });
+    setView('DASHBOARD');
+  };
+
+  const exitProject = () => {
+    setScope({ projectId: null, siteId: null, groupId: null });
+    setView('PROJECT_SELECT');
   };
 
   // --- CRUD: Hierarchy Wrappers (Open Modals) ---
@@ -393,12 +402,6 @@ function App() {
 
   // Helper to get Groups based on scope
   const monitorGroups = useMemo(() => {
-    // Return structure: [{ siteName: 'Site A', groups: [Group1, Group2] }, ...]
-    
-    // 1. If Global Scope -> Show all Projects (Summary View) OR Flatten all sites? 
-    //    The user wants "Project View" -> "Show all groups".
-    //    Let's make it recursive based on scope.
-    
     let result: { siteName: string, siteId: string, groups: {id: string, name: string}[] }[] = [];
 
     const relevantProjects = scope.projectId 
@@ -411,7 +414,6 @@ function App() {
          : proj.sites;
       
       relevantSites.forEach(site => {
-        // Filter groups if needed (though usually we show all groups in a site)
         const relevantGroups = scope.groupId 
           ? site.groups.filter(g => g.id === scope.groupId)
           : site.groups;
@@ -431,84 +433,7 @@ function App() {
 
   // --- Render Functions ---
 
-  const renderHierarchyTree = () => (
-    <div className="space-y-1 text-sm">
-      <div 
-        onClick={() => setScope({ projectId: null, siteId: null, groupId: null })}
-        className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer ${
-          !scope.projectId ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'
-        }`}
-      >
-        <Home className="w-4 h-4" />
-        <span className="font-medium">總管理處</span>
-      </div>
-
-      {projects.map(project => {
-        const isExpanded = expandedNodes.has(project.id) || scope.projectId === project.id;
-        return (
-          <div key={project.id} className="ml-1">
-             <div className="flex items-center gap-1 group">
-                <button onClick={(e) => { e.stopPropagation(); toggleNode(project.id); }} className="p-1 text-slate-400 hover:text-white">
-                  {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                </button>
-                <div 
-                  onClick={() => setScope({ projectId: project.id, siteId: null, groupId: null })}
-                  className={`flex-1 flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors ${
-                    scope.projectId === project.id && !scope.siteId ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'
-                  }`}
-                >
-                   <Building className="w-4 h-4" />
-                   <span className="truncate">{project.name}</span>
-                </div>
-             </div>
-
-             {isExpanded && (
-               <div className="ml-4 border-l border-slate-700 pl-2 space-y-1 mt-1">
-                 {project.sites.map(site => {
-                   const isSiteExpanded = expandedNodes.has(site.id) || scope.siteId === site.id;
-                   return (
-                     <div key={site.id}>
-                        <div className="flex items-center gap-1 group">
-                          <button onClick={(e) => { e.stopPropagation(); toggleNode(site.id); }} className="p-1 text-slate-400 hover:text-white">
-                             {isSiteExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                           </button>
-                           <div 
-                             onClick={() => setScope({ projectId: project.id, siteId: site.id, groupId: null })}
-                             className={`flex-1 flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors ${
-                               scope.siteId === site.id && !scope.groupId ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                             }`}
-                           >
-                             <MapPin className="w-3 h-3" />
-                             <span className="truncate">{site.name}</span>
-                           </div>
-                        </div>
-                        {isSiteExpanded && (
-                          <div className="ml-4 border-l border-slate-700 pl-2 space-y-1 mt-1">
-                            {site.groups.map(group => (
-                              <div 
-                                key={group.id}
-                                onClick={() => setScope({ projectId: project.id, siteId: site.id, groupId: group.id })}
-                                className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors ${
-                                  scope.groupId === group.id ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-white hover:bg-slate-800'
-                                }`}
-                              >
-                                <Users className="w-3 h-3" />
-                                <span className="truncate">{group.name}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                     </div>
-                   );
-                 })}
-               </div>
-             )}
-          </div>
-        );
-      })}
-    </div>
-  );
-
+  // 1. Login View
   if (view === 'LOGIN') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
@@ -539,6 +464,87 @@ function App() {
     );
   }
 
+  // 2. Project Selection View
+  if (view === 'PROJECT_SELECT') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center p-8">
+        <div className="w-full max-w-5xl">
+          <div className="flex justify-between items-center mb-12">
+             <div className="flex items-center gap-3">
+               <div className="bg-blue-600 p-2 rounded-lg text-white">
+                 <Box className="w-6 h-6" />
+               </div>
+               <h1 className="text-2xl font-bold text-gray-800">SmartBuild 專案選擇</h1>
+             </div>
+             <button onClick={handleLogout} className="text-gray-500 hover:text-gray-700 flex items-center gap-2">
+               <LogOut className="w-5 h-5" /> 登出
+             </button>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {projects.map(proj => (
+              <div 
+                key={proj.id} 
+                onClick={() => selectProject(proj.id)}
+                className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg hover:border-blue-400 transition-all cursor-pointer group"
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <div className="bg-blue-50 p-3 rounded-lg group-hover:bg-blue-600 transition-colors">
+                    <Briefcase className="w-6 h-6 text-blue-600 group-hover:text-white" />
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-blue-500" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-800 mb-2">{proj.name}</h2>
+                <div className="text-sm text-gray-500 mb-4">專案編號: {proj.id}</div>
+                <div className="border-t pt-4 flex gap-4 text-sm text-gray-500">
+                  <div className="flex items-center gap-1">
+                    <MapPin className="w-4 h-4" /> {proj.sites.length} 個工區
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Users className="w-4 h-4" /> {proj.sites.reduce((acc, s) => acc + s.groups.length, 0)} 個小組
+                  </div>
+                </div>
+              </div>
+            ))}
+            
+            {/* Add Project Card */}
+            <div 
+              onClick={openAddProjectModal}
+              className="border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center justify-center text-gray-400 hover:text-blue-600 hover:border-blue-400 hover:bg-blue-50 transition-all cursor-pointer min-h-[200px]"
+            >
+              <Plus className="w-12 h-12 mb-2" />
+              <span className="font-bold">建立新專案</span>
+            </div>
+          </div>
+        </div>
+        
+        {/* Add Project Modal (Reused) */}
+        {addModal.type === 'PROJECT' && (
+          <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
+              <h3 className="text-lg font-bold text-gray-800 mb-4">新增專案</h3>
+              <input 
+                type="text" 
+                autoFocus
+                className="w-full border rounded p-2 mb-4" 
+                placeholder="專案名稱..." 
+                value={newItemName}
+                onChange={e => setNewItemName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSaveNewItem()}
+                onClick={(e) => e.stopPropagation()}
+              />
+              <div className="flex justify-end gap-3">
+                <button onClick={(e) => { e.stopPropagation(); setAddModal({type: null}); }} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">取消</button>
+                <button onClick={(e) => { e.stopPropagation(); handleSaveNewItem(); }} className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">確認</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // 3. Project Dashboard Layout
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row h-screen overflow-hidden">
       {/* Sidebar Desktop */}
@@ -548,21 +554,27 @@ function App() {
           SmartBuild
         </div>
         
-        <div className="px-4 pb-4 border-b border-slate-800">
-          <p className="text-xs font-bold text-slate-500 uppercase mb-2">組織架構導航</p>
-          <div className="h-[calc(100vh-320px)] overflow-y-auto no-scrollbar pr-2">
-            {renderHierarchyTree()}
-          </div>
+        <div className="px-4 pb-6 border-b border-slate-800">
+           <div className="text-xs font-bold text-slate-500 uppercase mb-2">當前專案</div>
+           <div className="text-white font-bold text-lg leading-tight mb-3">
+             {currentProject?.name}
+           </div>
+           <button 
+             onClick={exitProject}
+             className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded flex items-center gap-2 w-full transition-colors"
+           >
+             <ArrowLeftRight className="w-3 h-3" /> 切換專案
+           </button>
         </div>
 
-        <nav className="p-4 space-y-1 shrink-0 bg-slate-900">
-          <p className="text-xs font-bold text-slate-500 uppercase mb-2 px-2">管理功能</p>
-          <NavButton icon={<LayoutDashboard />} label="戰情監控室" active={view === 'DASHBOARD'} onClick={() => setView('DASHBOARD')} />
-          <NavButton icon={<ClipboardList />} label="庫存清單與註冊" active={view === 'INVENTORY'} onClick={() => setView('INVENTORY')} />
-          <NavButton icon={<Settings />} label="專案結構設定" active={view === 'SETTINGS'} onClick={() => setView('SETTINGS')} />
+        <nav className="p-4 space-y-1 shrink-0 bg-slate-900 mt-2">
+          <p className="text-xs font-bold text-slate-500 uppercase mb-2 px-2">專案管理功能</p>
+          <NavButton icon={<Monitor />} label="戰情監控室" active={view === 'DASHBOARD'} onClick={() => setView('DASHBOARD')} />
+          <NavButton icon={<ClipboardList />} label="庫存清單" active={view === 'INVENTORY'} onClick={() => setView('INVENTORY')} />
+          <NavButton icon={<Settings />} label="結構設定 (工區/小組)" active={view === 'SETTINGS'} onClick={() => setView('SETTINGS')} />
         </nav>
         
-        <div className="p-4 border-t border-slate-800 shrink-0">
+        <div className="mt-auto p-4 border-t border-slate-800 shrink-0">
           <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-2 hover:bg-slate-800 rounded-lg transition-colors">
             <LogOut className="w-5 h-5" />
             <span>登出</span>
@@ -574,23 +586,18 @@ function App() {
       <main className="flex-1 flex flex-col h-full overflow-hidden relative">
         <div className="md:hidden bg-white shadow-sm p-4 flex justify-between items-center shrink-0">
           <span className="font-bold text-lg text-gray-800 flex items-center gap-2">
-            <Box className="w-6 h-6 text-blue-600" /> SmartBuild
+            <Box className="w-6 h-6 text-blue-600" /> {currentProject?.name}
           </span>
           <button onClick={() => setShowScanner(true)}><ScanLine className="w-6 h-6 text-gray-600" /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-20 md:pb-8 bg-gray-50">
-          <div className="flex justify-between items-end mb-6">
-             <div>
-               <h2 className="text-2xl font-bold text-gray-800">{currentScopeName}</h2>
-               <p className="text-gray-500 text-sm mt-1">
-                 {scope.projectId ? (scope.siteId ? (scope.groupId ? '小組層級' : '工區層級') : '專案層級') : '集團總覽'}
-               </p>
-             </div>
-          </div>
-
           {view === 'DASHBOARD' && (
             <div className="space-y-6">
+               <div className="flex justify-between items-end">
+                  <h2 className="text-2xl font-bold text-gray-800">專案戰情監控</h2>
+               </div>
+
                {/* 1. Filter Bar (The Control Panel) */}
                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2 mb-3">
@@ -598,7 +605,7 @@ function App() {
                     <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">監控材料篩選</h3>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {availableMaterials.length === 0 && <span className="text-sm text-gray-400">目前無庫存數據</span>}
+                    {availableMaterials.length === 0 && <span className="text-sm text-gray-400">此專案目前無庫存數據</span>}
                     {availableMaterials.map(mat => (
                       <button
                         key={mat}
@@ -619,7 +626,8 @@ function App() {
                {monitorGroups.length === 0 ? (
                  <div className="flex flex-col items-center justify-center h-64 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
                     <Monitor className="w-12 h-12 text-slate-300 mb-2" />
-                    <p className="text-slate-400">此範圍內無工區或小組數據</p>
+                    <p className="text-slate-400">此專案尚未建立工區或小組</p>
+                    <button onClick={() => setView('SETTINGS')} className="mt-2 text-blue-600 hover:underline">前往設定新增</button>
                  </div>
                ) : (
                  monitorGroups.map(siteGroup => (
@@ -634,9 +642,7 @@ function App() {
                       {/* Group Grid (CCTV Screens) */}
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                         {siteGroup.groups.map(group => {
-                          // Get data for this group
                           const groupMaterials = inventory.filter(i => i.groupId === group.id);
-                          
                           return (
                             <div key={group.id} className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden h-full">
                                {/* Group Title Bar */}
@@ -658,8 +664,6 @@ function App() {
                                       const items = groupMaterials.filter(i => i.name === filterName);
                                       const totalQty = items.reduce((a,c) => a + c.quantity, 0);
                                       const unit = items[0]?.unit || '-';
-                                      
-                                      // Visual bar calculation (arbitrary max for demo visuals, e.g., 100)
                                       const percent = Math.min((totalQty / 200) * 100, 100); 
 
                                       return (
@@ -670,7 +674,6 @@ function App() {
                                                  <span className={`text-sm font-mono font-bold ${totalQty === 0 ? 'text-gray-300' : 'text-slate-800'}`}>
                                                    {totalQty} <span className="text-[10px] text-gray-400 font-sans">{unit}</span>
                                                  </span>
-                                                 {/* Quick Transfer Button */}
                                                  <button 
                                                    onClick={() => openTransferModal(filterName, group.id)}
                                                    className="opacity-0 group-hover/item:opacity-100 transition-opacity p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"
@@ -680,7 +683,6 @@ function App() {
                                                  </button>
                                               </div>
                                            </div>
-                                           {/* Progress Bar */}
                                            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
                                               <div 
                                                 className={`h-full rounded-full transition-all duration-500 ${
@@ -695,7 +697,6 @@ function App() {
                                     })
                                   )}
                                   
-                                  {/* Empty State if filter selected but no matching items */}
                                   {monitorFilters.length > 0 && monitorFilters.every(f => !groupMaterials.some(i => i.name === f)) && (
                                      <div className="text-center py-4">
                                         <span className="text-xs text-gray-300 italic">無相關庫存</span>
@@ -719,130 +720,90 @@ function App() {
                 <div>
                   <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                     <Settings className="w-6 h-6 text-gray-600" /> 
-                    組織結構配置
+                    結構設定: {currentProject?.name}
                   </h3>
-                  <p className="text-gray-500 mt-1">管理專案、工區以及負責的小組單位</p>
+                  <p className="text-gray-500 mt-1">管理本專案下的工區與小組</p>
                 </div>
-                <button 
-                  onClick={openAddProjectModal} 
-                  className="flex items-center gap-2 bg-slate-800 text-white px-5 py-3 rounded-lg hover:bg-slate-700 shadow-md transition-all active:scale-95"
-                >
-                  <Plus className="w-5 h-5" /> 建立新專案
-                </button>
               </div>
 
-              {/* Projects Grid */}
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                {projects.map(proj => (
-                  <div key={proj.id} className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden flex flex-col">
-                    
-                    {/* Project Header */}
-                    <div className="bg-slate-50 border-b border-slate-100 p-5 flex justify-between items-start">
-                      <div className="flex items-center gap-3">
-                         <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
-                           <Building className="w-6 h-6 text-blue-600" />
-                         </div>
-                         <div>
-                           <h4 className="font-bold text-lg text-slate-800">{proj.name}</h4>
-                           <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{proj.id}</span>
-                         </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => openDeleteModal('PROJECT', proj.id, proj.name)}
-                          className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                          title="刪除專案"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+              {/* Current Project Structure Only */}
+              {currentProject && (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                  {/* Sites List */}
+                  <div className="p-5 space-y-4 flex-1">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">轄下工區 (Sites)</span>
+                      <button 
+                        onClick={() => openAddSiteModal(currentProject.id)}
+                        className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1 hover:bg-emerald-50 px-2 py-1 rounded"
+                      >
+                        <Plus className="w-3 h-3" /> 新增工區
+                      </button>
                     </div>
 
-                    {/* Sites List */}
-                    <div className="p-5 space-y-4 flex-1">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">轄下工區 (Sites)</span>
-                        <button 
-                          onClick={() => openAddSiteModal(proj.id)}
-                          className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1 hover:bg-emerald-50 px-2 py-1 rounded"
-                        >
-                          <Plus className="w-3 h-3" /> 新增工區
-                        </button>
+                    {currentProject.sites.length === 0 ? (
+                      <div className="text-center py-8 border-2 border-dashed border-slate-100 rounded-lg text-slate-400 text-sm">
+                        尚未建立工區
                       </div>
-
-                      {proj.sites.length === 0 ? (
-                        <div className="text-center py-8 border-2 border-dashed border-slate-100 rounded-lg text-slate-400 text-sm">
-                          尚未建立工區
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          {proj.sites.map(site => (
-                            <div key={site.id} className="relative pl-4 border-l-2 border-emerald-500/30 group">
-                              <div className="flex justify-between items-start">
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <h5 className="font-bold text-slate-700">{site.name}</h5>
-                                    <button 
-                                      onClick={() => openDeleteModal('SITE', site.id, site.name, proj.id)}
-                                      className="opacity-0 group-hover:opacity-100 text-red-300 hover:text-red-500 transition-opacity"
+                    ) : (
+                      <div className="space-y-4">
+                        {currentProject.sites.map(site => (
+                          <div key={site.id} className="relative pl-4 border-l-2 border-emerald-500/30 group">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h5 className="font-bold text-slate-700">{site.name}</h5>
+                                  <button 
+                                    onClick={() => openDeleteModal('SITE', site.id, site.name, currentProject.id)}
+                                    className="opacity-0 group-hover:opacity-100 text-red-300 hover:text-red-500 transition-opacity"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                                
+                                {/* Groups Container */}
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {site.groups.map(group => (
+                                    <div 
+                                      key={group.id} 
+                                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100 group/chip"
                                     >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                  
-                                  {/* Groups Container */}
-                                  <div className="mt-2 flex flex-wrap gap-2">
-                                    {site.groups.map(group => (
-                                      <div 
-                                        key={group.id} 
-                                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100 group/chip"
+                                      <Users className="w-3 h-3" />
+                                      {group.name}
+                                      <button 
+                                        onClick={() => openDeleteModal('GROUP', group.id, group.name, currentProject.id, site.id)}
+                                        className="ml-1 text-purple-300 hover:text-red-500 hover:bg-red-50 rounded-full w-4 h-4 flex items-center justify-center transition-colors"
                                       >
-                                        <Users className="w-3 h-3" />
-                                        {group.name}
-                                        <button 
-                                          onClick={() => openDeleteModal('GROUP', group.id, group.name, proj.id, site.id)}
-                                          className="ml-1 text-purple-300 hover:text-red-500 hover:bg-red-50 rounded-full w-4 h-4 flex items-center justify-center transition-colors"
-                                        >
-                                          &times;
-                                        </button>
-                                      </div>
-                                    ))}
-                                    <button 
-                                      onClick={() => openAddGroupModal(proj.id, site.id)}
-                                      className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-slate-50 text-slate-500 border border-slate-200 border-dashed hover:border-slate-400 hover:text-slate-700 transition-colors"
-                                    >
-                                      <Plus className="w-3 h-3" /> 小組
-                                    </button>
-                                  </div>
+                                        &times;
+                                      </button>
+                                    </div>
+                                  ))}
+                                  <button 
+                                    onClick={() => openAddGroupModal(currentProject.id, site.id)}
+                                    className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-slate-50 text-slate-500 border border-slate-200 border-dashed hover:border-slate-400 hover:text-slate-700 transition-colors"
+                                  >
+                                    <Plus className="w-3 h-3" /> 小組
+                                  </button>
                                 </div>
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))}
-                
-                {/* Empty State / Add Placeholder */}
-                {projects.length === 0 && (
-                  <div 
-                    onClick={openAddProjectModal}
-                    className="border-2 border-dashed border-slate-300 rounded-xl p-8 flex flex-col items-center justify-center text-slate-400 cursor-pointer hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 transition-all min-h-[300px]"
-                  >
-                    <Layers className="w-12 h-12 mb-4 opacity-50" />
-                    <h3 className="font-bold text-lg">目前沒有專案</h3>
-                    <p className="text-sm">點擊此處建立您的第一個專案結構</p>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           )}
 
           {view === 'INVENTORY' && (
              <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                   <h2 className="text-xl font-bold text-gray-800">庫存清單與註冊</h2>
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                   <div>
+                      <h2 className="text-xl font-bold text-gray-800">庫存清單與註冊</h2>
+                      <p className="text-sm text-gray-500">{currentProject?.name} 全域庫存</p>
+                   </div>
                    <div className="flex gap-2">
                      <button 
                        onClick={() => setShowMaterialModal(true)}
@@ -851,6 +812,44 @@ function App() {
                        <Plus className="w-4 h-4" /> 註冊新材料
                      </button>
                    </div>
+                </div>
+
+                {/* Local Inventory Filters */}
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap gap-4 items-center">
+                  <div className="flex items-center gap-2">
+                    <Filter className="w-4 h-4 text-gray-400" />
+                    <span className="text-sm font-bold text-gray-600">篩選範圍:</span>
+                  </div>
+                  
+                  <select 
+                    className="border rounded px-3 py-1.5 text-sm bg-gray-50"
+                    value={scope.siteId || ''}
+                    onChange={e => setScope(prev => ({ ...prev, siteId: e.target.value || null, groupId: null }))}
+                  >
+                    <option value="">所有工區</option>
+                    {currentProject?.sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+
+                  <select 
+                    className="border rounded px-3 py-1.5 text-sm bg-gray-50 disabled:opacity-50"
+                    value={scope.groupId || ''}
+                    disabled={!scope.siteId}
+                    onChange={e => setScope(prev => ({ ...prev, groupId: e.target.value || null }))}
+                  >
+                    <option value="">所有小組</option>
+                    {currentProject?.sites.find(s => s.id === scope.siteId)?.groups.map(g => (
+                      <option key={g.id} value={g.id}>{g.name}</option>
+                    ))}
+                  </select>
+
+                  {(scope.siteId || scope.groupId) && (
+                    <button 
+                      onClick={() => setScope(prev => ({ ...prev, siteId: null, groupId: null }))}
+                      className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+                    >
+                      <X className="w-3 h-3" /> 清除篩選
+                    </button>
+                  )}
                 </div>
                 
                 <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
@@ -917,9 +916,9 @@ function App() {
       </main>
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex justify-around p-3 pb-safe z-20 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
-        <MobileNavIcon icon={<LayoutDashboard />} label="首頁" active={view === 'DASHBOARD'} onClick={() => setView('DASHBOARD')} />
+        <MobileNavIcon icon={<LayoutDashboard />} label="監控" active={view === 'DASHBOARD'} onClick={() => setView('DASHBOARD')} />
         <MobileNavIcon icon={<Box />} label="庫存" active={view === 'INVENTORY'} onClick={() => setView('INVENTORY')} />
-        <MobileNavIcon icon={<FolderTree />} label="結構" active={view === 'SETTINGS'} onClick={() => setView('SETTINGS')} />
+        <MobileNavIcon icon={<Settings />} label="設定" active={view === 'SETTINGS'} onClick={() => setView('SETTINGS')} />
       </div>
 
       {/* --- MODALS --- */}
@@ -1010,17 +1009,18 @@ function App() {
                 
                 <div className="bg-gray-50 p-4 rounded-lg space-y-3">
                    <p className="text-xs font-bold text-gray-500 uppercase">初始位置設定</p>
-                   <select className="w-full border rounded p-2" value={newMaterial.projectId} onChange={e => setNewMaterial({...newMaterial, projectId: e.target.value, siteId: '', groupId: ''})}>
-                      <option value="">選擇專案</option>
-                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                   </select>
-                   <select className="w-full border rounded p-2" value={newMaterial.siteId} onChange={e => setNewMaterial({...newMaterial, siteId: e.target.value, groupId: ''})} disabled={!newMaterial.projectId}>
+                   {/* Scoped Logic: Only show sites/groups for CURRENT project */}
+                   <div className="p-2 border rounded bg-gray-100 text-sm font-bold text-gray-600 mb-2">
+                      專案: {currentProject?.name}
+                   </div>
+                   
+                   <select className="w-full border rounded p-2" value={newMaterial.siteId} onChange={e => setNewMaterial({...newMaterial, projectId: currentProject?.id || '', siteId: e.target.value, groupId: ''})}>
                       <option value="">選擇工區</option>
-                      {projects.find(p=>p.id===newMaterial.projectId)?.sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      {currentProject?.sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                    </select>
                    <select className="w-full border rounded p-2" value={newMaterial.groupId} onChange={e => setNewMaterial({...newMaterial, groupId: e.target.value})} disabled={!newMaterial.siteId}>
                       <option value="">選擇小組</option>
-                      {projects.find(p=>p.id===newMaterial.projectId)?.sites.find(s=>s.id===newMaterial.siteId)?.groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                      {currentProject?.sites.find(s=>s.id===newMaterial.siteId)?.groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                    </select>
                 </div>
 
@@ -1056,7 +1056,7 @@ function App() {
                      onChange={e => setTransferData({...transferData, fromGroupId: e.target.value})}
                    >
                      <option value="">請選擇來源</option>
-                     {projects.find(p => p.id === scope.projectId)?.sites.find(s => s.id === scope.siteId)?.groups.map(g => (
+                     {projects.find(p => p.id === scope.projectId)?.sites.flatMap(s => s.groups).map(g => (
                        <option key={g.id} value={g.id}>{g.name}</option>
                      ))}
                    </select>
@@ -1074,7 +1074,7 @@ function App() {
                      onChange={e => setTransferData({...transferData, toGroupId: e.target.value})}
                    >
                      <option value="">請選擇目的</option>
-                     {projects.find(p => p.id === scope.projectId)?.sites.find(s => s.id === scope.siteId)?.groups.map(g => (
+                     {projects.find(p => p.id === scope.projectId)?.sites.flatMap(s => s.groups).map(g => (
                        <option key={g.id} value={g.id} disabled={g.id === transferData.fromGroupId}>{g.name}</option>
                      ))}
                    </select>
