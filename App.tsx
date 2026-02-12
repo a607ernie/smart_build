@@ -411,6 +411,7 @@ function App() {
       type
     });
     setShowUsageModal(true);
+    setSelectedDashboardMaterial(null); // Fix: Close dashboard selection modal
   };
 
   const handleUsageOrAdd = () => {
@@ -463,6 +464,7 @@ function App() {
       quantity: 1
     });
     setShowTransferModal(true);
+    setSelectedDashboardMaterial(null); // Fix: Close dashboard selection modal
   };
 
   const handleTransfer = () => {
@@ -1640,7 +1642,10 @@ function App() {
                    </div>
                  </button>
                  <button 
-                   onClick={() => setEditingMaterial(selectedDashboardMaterial.material)}
+                   onClick={() => {
+                     setEditingMaterial(selectedDashboardMaterial.material);
+                     setSelectedDashboardMaterial(null);
+                   }}
                    className="flex items-center gap-3 p-4 hover:bg-gray-50 text-gray-700 transition-colors"
                  >
                    <div className="bg-gray-100 p-2 rounded-full text-gray-600"><Edit className="w-5 h-5" /></div>
