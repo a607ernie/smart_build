@@ -1,0 +1,22 @@
+services:
+  # smart_build-dev:
+  #   build:
+  #     context: .
+  #     target: dev
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - .:/app
+  #     - /app/node_modules
+    # Vite reads .env.local from the filesystem; mounting project dir keeps it available.
+
+  smart_build:
+    build:
+      context: .
+      target: prod
+      # args:
+        # Optional: used to generate .env.production.local during image build.
+        # You can set this in a local .env (compose default) or export it in your shell.
+        # GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    ports:
+      - "127.0.0.1:8061:80"

@@ -10,7 +10,9 @@ View your app in AI Studio: https://ai.studio/apps/drive/1xb-HCQPptb3J7cDN9bXC2B
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
+**Prerequisites:** Node.js (>= 18, recommended 20)
+
+This repo includes a `.nvmrc` (Node 20). If you use `nvm`, run `nvm use` in the project folder.
 
 
 1. Install dependencies:
